@@ -1,7 +1,7 @@
 import re
 
 from tethys_sdk.components import ComponentBase
-from tethys_sdk.components.utils import event
+from tethys_sdk.components.utils import event, component
 from time import sleep
 from urllib.request import urlopen, Request
 from tethys_sdk.app_settings import SecretCustomSetting
@@ -131,12 +131,11 @@ def data_from_sqlite(db_fpath, table_name):
     finally:
         conn.close()
 
-
-def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
+@component
+def create_editable_data_table(lib, row_data, set_row_data, id_col):
     """Create editable tabulated view of form data using AgGridReact"""
     selected_row, set_selected_row = lib.hooks.use_state(None)
     edit_mode, set_edit_mode = lib.hooks.use_state(False)
-    row_data, set_row_data = lib.hooks.use_state(initial_row_data or [])
     
     if not row_data or len(row_data) == 0:
         return lib.html.div(
@@ -178,8 +177,8 @@ def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
     
     def handle_cell_edit(e):
         """Handle cell editing and call parent callback"""
-        if on_data_change and callable(on_data_change):
-            on_data_change(e.node.beans.gridOptions.rowData)
+        if set_row_data and callable(set_row_data):
+            set_row_data(e.node.beans.gridOptions.rowData)
     
     return lib.html.div(
         style=lib.Style(
@@ -201,7 +200,7 @@ def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
                 variant="danger",
                 onClick=lambda e: (
                     set_row_data(
-                        [r for r in row_data if r["model"] != selected_row]
+                        [r for r in row_data if r[id_col] != selected_row]
                     ),
                     set_selected_row(None)
                 ),
@@ -211,7 +210,7 @@ def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
             key="my-table",
             rowData=row_data,
             columnDefs=col_defs,
-            rowId="model",
+            rowId=id_col,
             defaultColDef=default_col_def,
             pagination=True,
             paginationPageSize=20,
@@ -560,17 +559,8 @@ def map_location(lib):
                     
                     lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
                         f"💡 Total Records: {len(displayed_data)} | Double-click cells to edit. Click 'Save Edits' to save changes."
-                    ),
-                    
-                    create_editable_data_table(lib, displayed_data, lambda data: set_displayed_data(data)) if displayed_data else lib.html.div(
-                        style=lib.Style(
-                            padding="40px",
-                            textAlign="center",
-                            color="#999",
-                            fontSize="16px"
-                        )
-                    )("📭 No data submitted yet. Submit a form to see data here."),
-                    
+                    ),                    
+                    create_editable_data_table(lib, displayed_data, set_displayed_data, "ves_no")
                 )
             ),
         ),
