@@ -132,9 +132,11 @@ def data_from_sqlite(db_fpath, table_name):
         conn.close()
 
 
-def create_editable_data_table(lib, row_data=None, on_data_change=None):
+def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
     """Create editable tabulated view of form data using AgGridReact"""
-    row_data = row_data or []
+    selected_row, set_selected_row = lib.hooks.use_state(None)
+    edit_mode, set_edit_mode = lib.hooks.use_state(False)
+    row_data, set_row_data = lib.hooks.use_state(initial_row_data or [])
     
     if not row_data or len(row_data) == 0:
         return lib.html.div(
@@ -180,20 +182,30 @@ def create_editable_data_table(lib, row_data=None, on_data_change=None):
             on_data_change(e.node.beans.gridOptions.rowData)
     
     return lib.html.div(
-        selected_row, set_selected_row = lib.hooks.use_state(None)
-        edit_mode, set_edit_mode = lib.hooks.use_state(False)
-            style=lib.Style(
+        style=lib.Style(
             height="600px",
             border="1px solid #ddd",
             borderRadius="4px",
             overflow="hidden",
-            backgroundColor="white")
-            lib.html.div(
-            lib.bs.Button(variant="secondary", onClick=lambda e: set_edit_mode(lambda val: not val))("Edit" if not edit_mode else "Stop Editing"),
-            lib.bs.Button(variant="danger", onClick=lambda e: (
-                set_row_data([r for r in row_data if r["model"] != selected_row]),
-                set_selected_row(None)
-            ))("Delete")
+            backgroundColor="white"
+        )
+    )(
+        lib.html.div(
+            lib.bs.Button(
+                variant="secondary", 
+                onClick=lambda e: set_edit_mode(lambda val: not val)
+            )(
+                "Edit" if not edit_mode else "Stop Editing"
+            ),
+            lib.bs.Button(
+                variant="danger", 
+                onClick=lambda e: (
+                    set_row_data([r for r in row_data if r["model"] != selected_row]),
+                    set_selected_row(None)
+                )
+            )(
+                "Delete"
+            )
         ) if selected_row else None,
         lib.ag.AgGridReact(
             key="my-table",
@@ -201,6 +213,11 @@ def create_editable_data_table(lib, row_data=None, on_data_change=None):
             columnDefs=col_defs,
             rowId="model",
             defaultColDef=default_col_def,
+            pagination=True,
+            paginationPageSize=20,
+            paginationPageSizeSelector=[10, 20, 50, 100],
+            domLayout="autoHeight",
+            enableBrowserTooltips=True,
             rowSelection=lib.Props(
                 mode='singleRow',
                 checkboxes=True,
@@ -208,22 +225,9 @@ def create_editable_data_table(lib, row_data=None, on_data_change=None):
             ),
             onSelectionChanged=lambda e: set_selected_row(e.selectedNodes[0].id if e.selectedNodes else None)
             onCellValueChanged=handle_cell_edit,
-            )
-        
-    )(
-        lib.ag.AgGridReact(
-            rowData=row_data,
-            columnDefs=col_defs,
-            defaultColDef=default_col_def,
-            onCellValueChanged=handle_cell_edit,
-            pagination=True,
-            paginationPageSize=20,
-            paginationPageSizeSelector=[10, 20, 50, 100],
-            domLayout="autoHeight",
-            enableBrowserTooltips=True,
         )
     )
-
+   
 
 @_resolve_page_decorator()
 def map_location(lib):
