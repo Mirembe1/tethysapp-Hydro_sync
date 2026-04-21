@@ -188,24 +188,24 @@ def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
             borderRadius="4px",
             overflow="hidden",
             backgroundColor="white"
-        )
+        ),
     )(
         lib.html.div(
             lib.bs.Button(
-                variant="secondary", 
+                variant="secondary",
                 onClick=lambda e: set_edit_mode(lambda val: not val)
             )(
                 "Edit" if not edit_mode else "Stop Editing"
             ),
             lib.bs.Button(
-                variant="danger", 
+                variant="danger",
                 onClick=lambda e: (
-                    set_row_data([r for r in row_data if r["model"] != selected_row]),
+                    set_row_data(
+                        [r for r in row_data if r["model"] != selected_row]
+                    ),
                     set_selected_row(None)
-                )
-            )(
-                "Delete"
-            )
+                ),
+            )("Delete"),
         ) if selected_row else None,
         lib.ag.AgGridReact(
             key="my-table",
@@ -223,11 +223,12 @@ def create_editable_data_table(lib, initial_row_data=None, on_data_change=None):
                 checkboxes=True,
                 enableClickSelection=True,
             ),
-            onSelectionChanged=lambda e: set_selected_row(e.selectedNodes[0].id if e.selectedNodes else None)
+            onSelectionChanged=lambda e: set_selected_row(
+                e.selectedNodes[0].id if e.selectedNodes else None
+            ),
             onCellValueChanged=handle_cell_edit,
         )
     )
-   
 
 @_resolve_page_decorator()
 def map_location(lib):
