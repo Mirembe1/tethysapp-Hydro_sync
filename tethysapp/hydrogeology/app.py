@@ -61,6 +61,60 @@ def _resolve_page_decorator():
     app_obj = globals().get("App")
     return app_obj.page if app_obj and hasattr(app_obj, "page") else (lambda func: func)
 
+def delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="id"):
+    """Delete a record from SQLite based on id_col"""
+    table_name = _safe_identifier(table_name)
+    
+    conn = sqlite3.connect(str(db_fpath))
+    cursor = conn.cursor()
+    
+    try:
+        delete_sql = f'DELETE FROM "{table_name}" WHERE "{id_col}" = ?'
+        cursor.execute(delete_sql, (record_id,))
+        conn.commit()
+        print(f"✓ Record with {id_col}={record_id} deleted from {table_name}")
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"✗ Error: {e}")
+        raise
+    finally:
+        conn.close()
+
+def update_data_in_sqlite(db_fpath, table_name, data, id_col="id"):
+    """Update existing records in SQLite based on id_col"""
+    table_name = _safe_identifier(table_name)
+    
+    if not data or len(data) == 0:
+        return
+    
+    conn = sqlite3.connect(str(db_fpath))
+    cursor = conn.cursor()
+    
+    try:
+        for row in data:
+            record_id = row.get(id_col)
+            if record_id is None:
+                continue
+            
+            columns = [col for col in row.keys() if col != id_col]
+            set_clause = ", ".join([f'"{col}" = ?' for col in columns])
+            values = [str(row.get(col, "")) if row.get(col) is not None else "" for col in columns]
+            values.append(record_id)
+            
+            update_sql = f'UPDATE "{table_name}" SET {set_clause} WHERE "{id_col}" = ?'
+            cursor.execute(update_sql, values)
+        
+        conn.commit()
+        print(f"✓ Data updated in {table_name}")
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"✗ Error: {e}")
+        raise
+    finally:
+        conn.close()
+
 
 def data_to_sqlite(db_fpath, table_name, data):
     """Save data to SQLite with dynamic schema management"""
@@ -136,6 +190,23 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
     """Create editable tabulated view of form data using AgGridReact"""
     selected_row, set_selected_row = lib.hooks.use_state(None)
     edit_mode, set_edit_mode = lib.hooks.use_state(False)
+
+    def handle_record_delete(e):
+        if selected_row is not None:
+            deleted_row = None
+            new_row_data = []
+            for row in row_data:
+                if str(row.get(id_col)) == str(selected_row):
+                    deleted_row = row
+                else:
+                    new_row_data.append(row)
+            
+            # Delete record from database
+            delete_record_from_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", deleted_row.get(id_col), id_col=id_col)
+            # Updates table view to omit deleted row
+            set_row_data(new_row_data)
+            # Since the selected row is now deleted, it can no longer be selected
+            set_selected_row(None)
     
     if not row_data or len(row_data) == 0:
         return lib.html.div(
@@ -160,7 +231,7 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
             "sortable": True,
             "resizable": True,
             "minWidth": 120,
-            "editable": True,
+            "editable": edit_mode,
             "wrapText": True,
             "autoHeight": True,
         })
@@ -170,7 +241,7 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
         resizable=True,
         sortable=True,
         filter=True,
-        editable=True,
+        editable=False,
         wrapText=True,
         autoHeight=True
     )
@@ -178,7 +249,11 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
     def handle_cell_edit(e):
         """Handle cell editing and call parent callback"""
         if set_row_data and callable(set_row_data):
-            set_row_data(e.node.beans.gridOptions.rowData)
+            updated_row_id = e.data.created_at
+            updated_row = e.data
+            new_row_data = [row if str(row.get(id_col)) != str(updated_row_id) else updated_row for row in row_data]
+            set_row_data(new_row_data)
+            update_data_in_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", [updated_row], id_col=id_col)
     
     return lib.html.div(
         style=lib.Style(
@@ -198,12 +273,7 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
             ),
             lib.bs.Button(
                 variant="danger",
-                onClick=lambda e: (
-                    set_row_data(
-                        [r for r in row_data if r[id_col] != selected_row]
-                    ),
-                    set_selected_row(None)
-                ),
+                onClick=handle_record_delete,
             )("Delete"),
         ) if selected_row else None,
         lib.ag.AgGridReact(
@@ -560,7 +630,7 @@ def map_location(lib):
                     lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
                         f"💡 Total Records: {len(displayed_data)} | Double-click cells to edit. Click 'Save Edits' to save changes."
                     ),                    
-                    create_editable_data_table(lib, displayed_data, set_displayed_data, "ves_no")
+                    create_editable_data_table(lib, displayed_data, set_displayed_data, "created_at")
                 )
             ),
         ),
