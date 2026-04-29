@@ -190,7 +190,10 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
     """Create editable tabulated view of form data using AgGridReact"""
     selected_row, set_selected_row = lib.hooks.use_state(None)
     edit_mode, set_edit_mode = lib.hooks.use_state(False)
-
+    edit_confirm_open, set_edit_confirm_open = lib.hooks.use_state(False)
+    delete_confirm_open, set_delete_confirm_open = lib.hooks.use_state(False)
+    lib.bs.ModalFooter()  ##preload ModalFooter to ensure it renders properly
+    
     def handle_record_delete(e):
         if selected_row is not None:
             deleted_row = None
@@ -251,6 +254,7 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
         if set_row_data and callable(set_row_data):
             updated_row_id = e.data.created_at
             updated_row = e.data
+            print(f"Edited row with {id_col}={updated_row_id}: {updated_row}")
             new_row_data = [row if str(row.get(id_col)) != str(updated_row_id) else updated_row for row in row_data]
             set_row_data(new_row_data)
             update_data_in_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", [updated_row], id_col=id_col)
@@ -264,18 +268,42 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
             backgroundColor="white"
         ),
     )(
-        lib.html.div(
+        lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
+            f"💡 Total Records: {len(row_data)}{' | double click a cell to edit' if edit_mode else ''}"
+        ),  
+        lib.html.div( 
+            # Edit Button
             lib.bs.Button(
                 variant="secondary",
-                onClick=lambda e: set_edit_mode(lambda val: not val)
+                onClick=lambda e: set_edit_confirm_open(True) if not edit_mode else set_edit_mode(False),
             )(
                 "Edit" if not edit_mode else "Stop Editing"
             ),
+            # Delete Button
             lib.bs.Button(
                 variant="danger",
-                onClick=handle_record_delete,
+                onClick=lambda e: set_delete_confirm_open(True)
             )("Delete"),
-        ) if selected_row else None,
+        ),
+
+        # Edit confirmation dialog
+        lib.bs.Modal(
+            show=edit_confirm_open or delete_confirm_open,
+            onHide=lambda: (set_edit_confirm_open(False), set_delete_confirm_open(False))
+        )(
+            lib.bs.ModalHeader()(f"Confirm {'Edit' if edit_confirm_open else 'Delete'}?"),
+            lib.bs.ModalFooter()(
+                lib.bs.Button(variant="secondary", onClick=lambda e: (set_edit_confirm_open(False), set_delete_confirm_open(False)))("Cancel"),
+                lib.bs.Button(
+                    variant="primary",
+                    onClick=lambda e: (
+                        set_edit_confirm_open(False),
+                        set_delete_confirm_open(False),
+                        set_edit_mode(True) if edit_confirm_open else handle_record_delete(e)
+                    ),
+                )("Confirm")
+            ) if selected_row else None,
+        ),
         lib.ag.AgGridReact(
             key="my-table",
             rowData=row_data,
@@ -606,30 +634,27 @@ def map_location(lib):
                     # Error Alert
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
                     
-                    lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="20px"))(
-                        lib.bs.Button(
-                            onClick=lambda _: handle_load_data(),
-                            variant="info",
-                            size="lg"
-                        )("🔄 Refresh Data"),
-                        lib.bs.Button(
-                            disabled=not displayed_data or is_loading,
-                            onClick=lambda _: handle_save_edited_data(),
-                            variant="success",
-                            size="lg",
-                            style=lib.Style(
-                                opacity="0.7" if is_loading else "1",
-                                cursor="not-allowed" if is_loading else "pointer"
-                            )
-                        )(
-                            lib.html.span(className="spinner")("⟳ ") if is_loading else "💾",
-                            "Saving..." if is_loading else "Save Edits"
-                        ),
-                    ),
-                    
-                    lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
-                        f"💡 Total Records: {len(displayed_data)} | Double-click cells to edit. Click 'Save Edits' to save changes."
-                    ),                    
+                    # lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="20px"))(
+                    #     lib.bs.Button(
+                    #         onClick=lambda _: handle_load_data(),
+                    #         variant="info",
+                    #         size="lg"
+                    #     )("🔄 Refresh Data"),
+                    #     lib.bs.Button(
+                    #         disabled=not displayed_data or is_loading,
+                    #         onClick=lambda _: handle_save_edited_data(),
+                    #         variant="success",
+                    #         size="lg",
+                    #         style=lib.Style(
+                    #             opacity="0.7" if is_loading else "1",
+                    #             cursor="not-allowed" if is_loading else "pointer"
+                    #         )
+                    #     )(
+                    #         lib.html.span(className="spinner")("⟳ ") if is_loading else "💾",
+                    #         "Saving..." if is_loading else "Save Edits"
+                    #     ),
+                    # ),                    
+                                  
                     create_editable_data_table(lib, displayed_data, set_displayed_data, "created_at")
                 )
             ),
