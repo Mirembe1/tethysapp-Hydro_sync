@@ -190,8 +190,9 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
     """Create editable tabulated view of form data using AgGridReact"""
     selected_row, set_selected_row = lib.hooks.use_state(None)
     edit_mode, set_edit_mode = lib.hooks.use_state(False)
+    confirm_delete, set_confirm_delete = lib.hooks.use_state(False)
 
-    def handle_record_delete(e):
+    def _do_delete():
         if selected_row is not None:
             deleted_row = None
             new_row_data = []
@@ -207,6 +208,11 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
             set_row_data(new_row_data)
             # Since the selected row is now deleted, it can no longer be selected
             set_selected_row(None)
+        set_confirm_delete(False)
+
+    def handle_record_delete(e):
+        # Open the confirmation dialog instead of deleting immediately
+        set_confirm_delete(True)
     
     if not row_data or len(row_data) == 0:
         return lib.html.div(
@@ -264,6 +270,32 @@ def create_editable_data_table(lib, row_data, set_row_data, id_col):
             backgroundColor="white"
         ),
     )(
+        # Delete confirmation modal
+        lib.bs.Modal(
+            show=confirm_delete,
+            onHide=lambda _: set_confirm_delete(False),
+            centered=True,
+        )(
+            lib.bs.ModalHeader(closeButton=True)(
+                lib.bs.ModalTitle()("Confirm Delete"),
+            ),
+            lib.bs.ModalBody()(
+                lib.html.p(
+                    "Are you sure you want to delete this record? This action cannot be undone."
+                ),
+            ),
+            lib.bs.ModalFooter()(
+                lib.bs.Button(
+                    variant="secondary",
+                    onClick=lambda _: set_confirm_delete(False),
+                )("Cancel"),
+                lib.bs.Button(
+                    variant="danger",
+                    onClick=lambda _: _do_delete(),
+                )("Delete Record"),
+            ),
+        ) if confirm_delete else None,
+
         lib.html.div(
             lib.bs.Button(
                 variant="secondary",
