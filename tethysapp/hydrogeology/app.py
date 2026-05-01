@@ -490,44 +490,8 @@ def map_location(lib):
         
         lib.tabs.Tabs(
             lib.tabs.TabList(
-                lib.tabs.Tab("Location Map"),
                 lib.tabs.Tab("Add Data"),
                 lib.tabs.Tab("View Data")
-            ),
-            lib.tabs.TabPanel(
-                lib.html.div(style=lib.Style(padding="20px"))(
-                    lib.html.h1("LOCATION MAP"),
-                    lib.bs.Row(
-                        lib.bs.Col(
-                            lib.html.label("Draw Color:"),
-                            lib.html.input(
-                                type="color",
-                                value=color,
-                                onChange=lambda e: set_color(e.target.value),
-                                style=lib.Style(marginRight="10px"),
-                            ),
-                            lib.html.label("Brush Width:"),
-                            lib.html.input(
-                                type="range",
-                                min="1",
-                                max="10",
-                                value=width,
-                                onChange=lambda e: set_width(int(e.target.value)),
-                            ),
-                        ),
-                    ),
-                    lib.bs.Row(
-                        lib.bs.Col(
-                            lib.sc.SketchCanvas(
-                                style=lib.Style(border="0.0625rem solid #9c9c9c", borderRadius="0.25rem", width="100%", height="500px"),
-                                width="100%",
-                                height="500px",
-                                strokeWidth=width,
-                                strokeColor=color,
-                            )
-                        ),
-                    ),
-                )
             ),
             
             lib.tabs.TabPanel(
@@ -562,6 +526,40 @@ def map_location(lib):
                     lib.bs.Form(key=form_key, onSubmit=handle_submit)(
                         lib.bs.Container()(
                             *form_rows,
+                            lib.html.div(style=lib.Style(padding="20px"))(
+                                lib.html.h1("LOCATION MAP"),
+                                lib.bs.Row(
+                                    lib.bs.Col(
+                                        lib.html.label("Draw Color:"),
+                                        lib.html.input(
+                                            type="color",
+                                            value=color,
+                                            onChange=lambda e: set_color(e.target.value),
+                                            style=lib.Style(marginRight="10px"),
+                                        ),
+                                        lib.html.label("Brush Width:"),
+                                        lib.html.input(
+                                            type="range",
+                                            min="1",
+                                            max="10",
+                                            value=width,
+                                            onChange=lambda e: set_width(int(e.target.value)),
+                                        ),
+                                    ),
+                                ),
+                                lib.bs.Row(
+                                    lib.bs.Col(
+                                        lib.sc.SketchCanvas(
+                                            name="sketch",
+                                            style=lib.Style(border="0.0625rem solid #9c9c9c", borderRadius="0.25rem", width="100%", height="500px"),
+                                            width="100%",
+                                            height="500px",
+                                            strokeWidth=width,
+                                            strokeColor=color,
+                                        )
+                                    ),
+                                ),
+                            ),
                             lib.bs.Button(
                                 type="submit",
                                 variant="primary",
