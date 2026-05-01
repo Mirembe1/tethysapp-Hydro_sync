@@ -509,16 +509,19 @@ def map_location(lib):
                 animation: slideDown 0.5s ease-out;
             }
         """),
-        
+
         lib.tabs.Tabs(
             lib.tabs.TabList(
-                lib.tabs.Tab("Location Map"),
                 lib.tabs.Tab("Add Data"),
-                lib.tabs.Tab("View Data")
+                lib.tabs.Tab("View Data"),
             ),
+
+            # ── Tab 1: Location Map  +  Survey Form ──────────────────────────
             lib.tabs.TabPanel(
                 lib.html.div(style=lib.Style(padding="20px"))(
-                    lib.html.h1("LOCATION MAP"),
+
+                    # --- Location Map section ---
+                    lib.html.h2("Location Map"),
                     lib.bs.Row(
                         lib.bs.Col(
                             lib.html.label("Draw Color:"),
@@ -549,13 +552,12 @@ def map_location(lib):
                             )
                         ),
                     ),
-                )
-            ),
-            
-            lib.tabs.TabPanel(
-                lib.html.div(style=lib.Style(padding="20px"))(
+
+                    lib.html.hr(),
+
+                    # --- Survey Form section ---
                     lib.html.h2("Map Location Survey Form"),
-                    
+
                     # Enhanced Success Alert
                     lib.bs.Alert(
                         variant="success",
@@ -572,15 +574,15 @@ def map_location(lib):
                                 lib.html.strong(success_message),
                                 lib.html.br(),
                                 lib.html.small(style=lib.Style(color="#666"))(
-                                    f"Record saved and data table updated"
+                                    "Record saved and data table updated"
                                 ) if submit_success else None,
                             )
                         )
                     ) if submit_success else None,
-                    
+
                     # Error Alert
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-                    
+
                     lib.bs.Form(key=form_key, onSubmit=submit_handler)(
                         lib.bs.Container()(
                             *form_rows,
@@ -605,10 +607,12 @@ def map_location(lib):
                     ),
                 )
             ),
+
+            # ── Tab 2: View Data ─────────────────────────────────────────────
             lib.tabs.TabPanel(
                 lib.html.div(style=lib.Style(padding="20px"))(
                     lib.html.h2("📊 Form Data - All Submissions"),
-                    
+
                     # Success Alert for saves
                     lib.bs.Alert(
                         variant="success",
@@ -630,31 +634,10 @@ def map_location(lib):
                             )
                         )
                     ) if submit_success else None,
-                    
+
                     # Error Alert
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-                    
-                    # lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="20px"))(
-                    #     lib.bs.Button(
-                    #         onClick=lambda _: handle_load_data(),
-                    #         variant="info",
-                    #         size="lg"
-                    #     )("🔄 Refresh Data"),
-                    #     lib.bs.Button(
-                    #         disabled=not displayed_data or is_loading,
-                    #         onClick=lambda _: handle_save_edited_data(),
-                    #         variant="success",
-                    #         size="lg",
-                    #         style=lib.Style(
-                    #             opacity="0.7" if is_loading else "1",
-                    #             cursor="not-allowed" if is_loading else "pointer"
-                    #         )
-                    #     )(
-                    #         lib.html.span(className="spinner")("⟳ ") if is_loading else "💾",
-                    #         "Saving..." if is_loading else "Save Edits"
-                    #     ),
-                    # ),                    
-                                  
+
                     create_editable_data_table(lib, displayed_data, set_displayed_data, "created_at")
                 )
             ),
