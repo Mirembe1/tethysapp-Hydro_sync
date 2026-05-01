@@ -192,6 +192,8 @@ def data_from_sqlite(db_fpath, table_name):
     conn = sqlite3.connect(str(db_fpath))
     try:
         df = pd.read_sql_query(f'SELECT * FROM "{table_name}" ORDER BY created_at DESC', conn)
+        if "sketch" in df.columns:
+            df["sketch"] = df["sketch"].apply(lambda x: x.split('base64')[0] if x else None)
         # Convert to list of dicts
         records = df.to_dict("records")
         print(f"✓ Retrieved {len(records)} records from {table_name}")
