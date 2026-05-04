@@ -53,9 +53,7 @@ def home(lib):
 
 def _safe_identifier(name):
     """Sanitize field names to be SQL-safe"""
-    # Replace special characters with underscores
     sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
-    # Ensure it starts with letter or underscore
     if not re.match(r'^[a-zA-Z_]', sanitized):
         sanitized = '_' + sanitized
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", sanitized):
@@ -64,8 +62,10 @@ def _safe_identifier(name):
 
 
 def _resolve_page_decorator():
+    """Resolve the page decorator - returns App.page if available"""
     app_obj = globals().get("App")
     return app_obj.page if app_obj and hasattr(app_obj, "page") else (lambda func: func)
+
 
 def delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="created_at"):
     """Delete a record from SQLite based on id_col"""
@@ -138,7 +138,6 @@ def data_to_sqlite(db_fpath, table_name, data):
     try:
         first_row = data[0]
         
-        # Sanitize all column names
         columns_orig = list(first_row.keys())
         columns_safe = [_safe_identifier(key) for key in columns_orig]
         columns_safe.append("created_at")
@@ -192,10 +191,6 @@ def data_from_sqlite(db_fpath, table_name):
     conn = sqlite3.connect(str(db_fpath))
     try:
         df = pd.read_sql_query(f'SELECT * FROM "{table_name}" ORDER BY created_at DESC', conn)
-        if "sketch" in df.columns and df["sketch"] is not None:
-            mask = df['sketch'].notnull() & df['sketch'].apply(lambda x: isinstance(x, str))
-            df.loc[mask, 'sketch'] = df.loc[mask, 'sketch'].str.split('base64').str[0]
-        # Convert to list of dicts
         records = df.to_dict("records")
         print(f"✓ Retrieved {len(records)} records from {table_name}")
         return records
@@ -205,160 +200,8 @@ def data_from_sqlite(db_fpath, table_name):
     finally:
         conn.close()
 
-@component
-def create_editable_data_table(lib, row_data, set_row_data, id_col, db_fpath=None, table_name=None):
-    """Create editable tabulated view of form data using AgGridReact"""
-    selected_row, set_selected_row = lib.hooks.use_state(None)
-    edit_mode, set_edit_mode = lib.hooks.use_state(False)
-    edit_confirm_open, set_edit_confirm_open = lib.hooks.use_state(False)
-    delete_confirm_open, set_delete_confirm_open = lib.hooks.use_state(False)
-    lib.bs.ModalFooter()  ##preload ModalFooter to ensure it renders properly
-    
-    def handle_record_delete(e):
-        if selected_row is not None:
-            deleted_row = None
-            new_row_data = []
-            for row in row_data:
-                if str(row.get(id_col)) == str(selected_row):
-                    deleted_row = row
-                else:
-                    new_row_data.append(row)
-            
-            # Delete record from database
-            if db_fpath and table_name:
-                delete_record_from_sqlite(db_fpath, table_name, deleted_row.get(id_col), id_col=id_col)
-            else:
-                # Fallback for Map Location page
-                delete_record_from_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", deleted_row.get(id_col), id_col=id_col)
-            # Updates table view to omit deleted row
-            set_row_data(new_row_data)
-            set_delete_confirm_open(False)
-            # Since the selected row is now deleted, it can no longer be selected
-            set_selected_row(None)
-    
-    if not row_data or len(row_data) == 0:
-        return lib.html.div(
-            style=lib.Style(
-                padding="20px",
-                textAlign="center",
-                color="#999",
-                fontSize="16px"
-            )
-        )("📭 No data submitted yet. Submit a form to see data here.")
-    
-    first_row = row_data[0]
-    
-    col_defs = []
-    for key in first_row.keys():
-        value = first_row[key]
-        col_type = "agNumberColumnFilter" if isinstance(value, (int, float)) else "agTextColumnFilter"
-        
-        col_defs.append({
-            "field": key,
-            "filter": col_type,
-            "sortable": True,
-            "resizable": True,
-            "minWidth": 120,
-            "editable": edit_mode,
-            "wrapText": True,
-            "autoHeight": True,
-        })
-    
-    default_col_def = lib.Props(
-        flex=1,
-        resizable=True,
-        sortable=True,
-        filter=True,
-        editable=False,
-        wrapText=True,
-        autoHeight=True
-    )
-    
-    def handle_cell_edit(e):
-        """Handle cell editing and call parent callback"""
-        if set_row_data and callable(set_row_data):
-            updated_row_id = e.data.get(id_col)
-            updated_row = e.data
-            print(f"Edited row with {id_col}={updated_row_id}: {updated_row}")
-            new_row_data = [row if str(row.get(id_col)) != str(updated_row_id) else updated_row for row in row_data]
-            set_row_data(new_row_data)
-            if db_fpath and table_name:
-                update_data_in_sqlite(db_fpath, table_name, [updated_row], id_col=id_col)
-            else:
-                # Fallback for Map Location page
-                update_data_in_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", [updated_row], id_col=id_col)
-    
-    return lib.html.div(
-        style=lib.Style(
-            height="600px",
-            border="1px solid #ddd",
-            borderRadius="4px",
-            overflow="hidden",
-            backgroundColor="white"
-        ),
-    )(
-        lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
-            f"💡 Total Records: {len(row_data)}{' | double click a cell to edit' if edit_mode else ''}"
-        ),  
-        lib.html.div( 
-            # Edit Button
-            lib.bs.Button(
-                variant="secondary",
-                onClick=lambda e: set_edit_confirm_open(True) if not edit_mode else set_edit_mode(False),
-            )(
-                "✏️ Edit" if not edit_mode else "⏹️ Stop Editing"
-            ),
-            # Delete Button
-            lib.bs.Button(
-                variant="danger",
-                onClick=lambda e: set_delete_confirm_open(True),
-                disabled=selected_row is None
-            )("🗑️ Delete"),
-        ),
 
-        # Edit/Delete confirmation dialog
-        lib.bs.Modal(
-            show=edit_confirm_open or delete_confirm_open,
-            onHide=lambda: (set_edit_confirm_open(False), set_delete_confirm_open(False))
-        )(
-            lib.bs.ModalHeader()(f"Confirm {'Edit Mode' if edit_confirm_open else 'Delete Record'}?"),
-            lib.bs.ModalBody()(
-                "Enable editing mode? Double-click cells to edit data." if edit_confirm_open else "Are you sure you want to delete this record? This action cannot be undone."
-            ),
-            lib.bs.ModalFooter()(
-                lib.bs.Button(variant="secondary", onClick=lambda e: (set_edit_confirm_open(False), set_delete_confirm_open(False)))("Cancel"),
-                lib.bs.Button(
-                    variant="primary" if edit_confirm_open else "danger",
-                    onClick=lambda e: (
-                        set_edit_confirm_open(False),
-                        set_edit_mode(True) if edit_confirm_open else handle_record_delete(e)
-                    ),
-                )("Confirm")
-            ),
-        ),
-        lib.ag.AgGridReact(
-            key="my-table",
-            rowData=row_data,
-            columnDefs=col_defs,
-            rowId=id_col,
-            defaultColDef=default_col_def,
-            pagination=True,
-            paginationPageSize=20,
-            paginationPageSizeSelector=[10, 20, 50, 100],
-            domLayout="autoHeight",
-            enableBrowserTooltips=True,
-            rowSelection=lib.Props(
-                mode='singleRow',
-                checkboxes=True,
-                enableClickSelection=True,
-            ),
-            onSelectionChanged=lambda e: set_selected_row(
-                e.selectedNodes[0].id if e.selectedNodes else None
-            ),
-            onCellValueChanged=handle_cell_edit,
-        )
-    )
-
+# NOW DEFINE THE PAGE DECORATOR USAGE
 @_resolve_page_decorator()
 def map_location(lib):
     displayed_data, set_displayed_data = lib.hooks.use_state([])
@@ -368,12 +211,13 @@ def map_location(lib):
     form_key, set_form_key = lib.hooks.use_state(str(uuid4()))
     is_loading, set_is_loading = lib.hooks.use_state(False)
     data_loaded, set_data_loaded = lib.hooks.use_state(False)
+    view_mode, set_view_mode = lib.hooks.use_state("list")  # "list" or "detail"
+    selected_record_id, set_selected_record_id = lib.hooks.use_state(None)
 
     resources = lib.hooks.use_resources()
-    db_fpath = resources.path / "my_database.sqlite"
+    db_fpath = resources.path / "map_location.sqlite"
     table_name = "Map_Location"
 
-    # Auto-load data on component mount
     def auto_load_data():
         if not data_loaded:
             try:
@@ -386,7 +230,6 @@ def map_location(lib):
                 print(f"Auto-load error: {err}")
                 set_data_loaded(True)
 
-    # Run auto-load once
     lib.hooks.use_effect(auto_load_data, [])
 
     form_fields = [
@@ -432,22 +275,17 @@ def map_location(lib):
             form_data = e["formData"]
             data_to_sqlite(db_fpath, table_name, [form_data])
             
-            # Get current timestamp
             now = datetime.now()
             timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
             
-            # Set success feedback
             set_submit_success(True)
             set_success_message(f"✓ Form submitted successfully at {timestamp}")
             
-            # Reset form
             set_form_key(str(uuid4()))
             
-            # Auto-reload the View Data table
             new_data = data_from_sqlite(db_fpath, table_name)
             set_displayed_data(new_data)
             
-            # Hide success message after 4 seconds
             lib.utils.background_execute(
                 lambda: set_submit_success(None), 
                 delay_seconds=4
@@ -464,6 +302,185 @@ def map_location(lib):
 
     color, set_color = lib.hooks.use_state("#100a0a")
     width, set_width = lib.hooks.use_state(4)
+    
+    # DETAIL VIEW PAGE
+    def render_detail_view():
+        record = next((r for r in displayed_data if str(r.get("created_at")) == str(selected_record_id)), None)
+        
+        if not record:
+            return lib.html.div(
+                style=lib.Style(padding="20px", textAlign="center")
+            )(
+                lib.html.h3("Record not found"),
+                lib.bs.Button(onClick=lambda e: set_view_mode("list"))("← Back to List")
+            )
+        
+        sketch_data = record.get("sketch", "")
+        
+        return lib.html.div(
+            style=lib.Style(padding="20px", maxWidth="1200px", margin="0 auto")
+        )(
+            lib.html.div(
+                style=lib.Style(display="flex", justifyContent="space-between", alignItems="center", marginBottom="20px")
+            )(
+                lib.html.h2(f"🔍 Survey Details - {record.get('village', 'N/A')}"),
+                lib.bs.Button(
+                    variant="secondary",
+                    onClick=lambda e: set_view_mode("list")
+                )("← Back to List")
+            ),
+            
+            lib.html.hr(),
+            
+            lib.html.div(
+                style=lib.Style(backgroundColor="white", padding="20px", borderRadius="8px", marginBottom="20px", border="1px solid #ddd")
+            )(
+                lib.html.h3("📋 Survey Information"),
+                
+                lib.html.div(
+                    style=lib.Style(display="grid", gridTemplateColumns="repeat(2, 1fr)", gap="15px")
+                )(
+                    *[
+                        lib.html.div(style=lib.Style(padding="12px", backgroundColor="#f9f9f9", borderRadius="4px", border="1px solid #eee"))(
+                            lib.html.strong(style=lib.Style(display="block", marginBottom="5px", color="#333", fontSize="13px"))(
+                                f"{key.replace('_', ' ').title()}:"
+                            ),
+                            lib.html.span(style=lib.Style(color="#666", fontSize="14px"))(
+                                str(value) if value else "—"
+                            )
+                        )
+                        for key, value in record.items() 
+                        if key not in ["sketch", "created_at", "id"] and value
+                    ]
+                )
+            ),
+            
+            lib.html.div(
+                style=lib.Style(backgroundColor="white", padding="20px", borderRadius="8px", border="1px solid #ddd", marginBottom="20px")
+            )(
+                lib.html.h3("🎨 Location Map Sketch"),
+                lib.html.div(
+                    style=lib.Style(
+                        width="100%",
+                        height="500px",
+                        border="2px solid #ddd",
+                        borderRadius="4px",
+                        overflow="hidden",
+                        backgroundColor="#f5f5f5"
+                    )
+                )(
+                    lib.html.img(
+                        src=sketch_data,
+                        style=lib.Style(
+                            width="100%",
+                            height="100%",
+                            objectFit="contain"
+                        ),
+                        alt="Location Map Sketch"
+                    ) if sketch_data else lib.html.div(
+                        style=lib.Style(
+                            display="flex",
+                            alignItems="center",
+                            justifyContent="center",
+                            height="100%",
+                            color="#999",
+                            fontSize="16px"
+                        )
+                    )("📭 No sketch available")
+                )
+            ),
+            
+            lib.html.div(
+                style=lib.Style(
+                    padding="12px",
+                    backgroundColor="#f0f0f0",
+                    borderRadius="4px",
+                    fontSize="12px",
+                    color="#666"
+                )
+            )(
+                lib.html.p()(
+                    f"📅 Submitted: {record.get('created_at', 'N/A')}"
+                )
+            ),
+        )
+    
+    # SUMMARY TABLE VIEW
+    def render_summary_table():
+        if not displayed_data or len(displayed_data) == 0:
+            return lib.html.div(
+                style=lib.Style(
+                    padding="20px",
+                    textAlign="center",
+                    color="#999",
+                    fontSize="16px"
+                )
+            )("📭 No data submitted yet. Submit a form to see data here.")
+        
+        table_rows = []
+        for record in displayed_data:
+            record_id = record.get("created_at")
+            table_rows.append(
+                lib.html.tr(
+                    style=lib.Style(
+                        borderBottom="1px solid #ddd",
+                        backgroundColor="#fff"
+                    )
+                )(
+                    lib.html.td(style=lib.Style(padding="12px", borderRight="1px solid #eee"))(
+                        record.get("village", "—")
+                    ),
+                    lib.html.td(style=lib.Style(padding="12px", borderRight="1px solid #eee"))(
+                        record.get("mapped_by", "—")
+                    ),
+                    lib.html.td(style=lib.Style(padding="12px", borderRight="1px solid #eee"))(
+                        record.get("created_at", "—")
+                    ),
+                    lib.html.td(style=lib.Style(padding="12px"))(
+                        lib.bs.Button(
+                            variant="info",
+                            size="sm",
+                            onClick=lambda e, rec_id=record_id: (
+                                set_selected_record_id(rec_id),
+                                set_view_mode("detail")
+                            )
+                        )("👁️ View")
+                    ),
+                )
+            )
+        
+        return lib.html.div(
+            style=lib.Style(
+                border="1px solid #ddd",
+                borderRadius="4px",
+                overflow="hidden",
+                backgroundColor="white"
+            )
+        )(
+            lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px", padding="15px"))(
+                f"💡 Total Records: {len(displayed_data)} | Click 'View' to see full details"
+            ),
+            lib.html.table(
+                style=lib.Style(
+                    width="100%",
+                    borderCollapse="collapse"
+                )
+            )(
+                lib.html.thead(
+                    style=lib.Style(backgroundColor="#f5f5f5", borderBottom="2px solid #ddd")
+                )(
+                    lib.html.tr()(
+                        lib.html.th(style=lib.Style(padding="12px", textAlign="left", fontWeight="bold", borderRight="1px solid #ddd"))("Village"),
+                        lib.html.th(style=lib.Style(padding="12px", textAlign="left", fontWeight="bold", borderRight="1px solid #ddd"))("Mapped By"),
+                        lib.html.th(style=lib.Style(padding="12px", textAlign="left", fontWeight="bold", borderRight="1px solid #ddd"))("Date"),
+                        lib.html.th(style=lib.Style(padding="12px", textAlign="left", fontWeight="bold"))("Action"),
+                    )
+                ),
+                lib.html.tbody()(
+                    *table_rows
+                )
+            )
+        )
     
     return lib.html.div()(
         lib.html.style()("""
@@ -491,7 +508,9 @@ def map_location(lib):
             }
         """),
         
-        lib.tabs.Tabs(
+        lib.html.div() if view_mode != "detail" else render_detail_view(),
+        
+        lib.html.div() if view_mode != "list" else lib.tabs.Tabs(
             lib.tabs.TabList(
                 lib.tabs.Tab("Add Data"),
                 lib.tabs.Tab("View Data")
@@ -501,7 +520,6 @@ def map_location(lib):
                 lib.html.div(style=lib.Style(padding="20px"))(
                     lib.html.h2("Map Location Survey Form"),
                     
-                    # Enhanced Success Alert
                     lib.bs.Alert(
                         variant="success",
                         className="success-alert",
@@ -523,7 +541,6 @@ def map_location(lib):
                         )
                     ) if submit_success else None,
                     
-                    # Error Alert
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
                     
                     lib.bs.Form(key=form_key, onSubmit=handle_submit)(
@@ -588,7 +605,6 @@ def map_location(lib):
                 lib.html.div(style=lib.Style(padding="20px"))(
                     lib.html.h2("📊 Form Data - All Submissions"),
                     
-                    # Success Alert for saves
                     lib.bs.Alert(
                         variant="success",
                         className="success-alert",
@@ -610,10 +626,9 @@ def map_location(lib):
                         )
                     ) if submit_success else None,
                     
-                    # Error Alert
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
                     
-                    create_editable_data_table(lib, displayed_data, set_displayed_data, "created_at", db_fpath, table_name)
+                    render_summary_table()
                 )
             ),
         ),
