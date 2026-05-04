@@ -506,11 +506,8 @@ def map_location(lib):
             .success-alert {
                 animation: slideDown 0.5s ease-out;
             }
-        """),
-        
-        lib.html.div() if view_mode != "detail" else render_detail_view(),
-        
-        lib.html.div() if view_mode != "list" else lib.tabs.Tabs(
+        """),   
+        lib.tabs.Tabs(
             lib.tabs.TabList(
                 lib.tabs.Tab("Add Data"),
                 lib.tabs.Tab("View Data")
@@ -629,7 +626,7 @@ def map_location(lib):
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
                     
                     render_summary_table()
-                )
+                ) if view_mode != "detail" else render_detail_view()
             ),
         ),
     )
