@@ -43,7 +43,6 @@ class App(ComponentBase):
             ),
         )
 
-
 def _safe_identifier(name):
     """Sanitize field names to be SQL-safe"""
     sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
@@ -64,16 +63,16 @@ def delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="created_a
     """Delete a record from SQLite based on id_col"""
     table_name = _safe_identifier(table_name)
     id_col = _safe_identifier(id_col)
-    
+
     conn = sqlite3.connect(str(db_fpath))
     cursor = conn.cursor()
-    
+
     try:
         delete_sql = f'DELETE FROM "{table_name}" WHERE "{id_col}" = ?'
         cursor.execute(delete_sql, (record_id,))
         conn.commit()
         print(f"✓ Record with {id_col}={record_id} deleted from {table_name}")
-        
+
     except Exception as e:
         conn.rollback()
         print(f"✗ Delete Error: {e}")
@@ -86,31 +85,31 @@ def update_data_in_sqlite(db_fpath, table_name, data, id_col="created_at"):
     """Update existing records in SQLite based on id_col"""
     table_name = _safe_identifier(table_name)
     id_col = _safe_identifier(id_col)
-    
+
     if not data or len(data) == 0:
         return
-    
+
     conn = sqlite3.connect(str(db_fpath))
     cursor = conn.cursor()
-    
+
     try:
         for row in data:
             record_id = row.get(id_col)
             if record_id is None:
                 continue
-            
+
             columns = [col for col in row.keys() if col != id_col]
             sanitized_columns = [_safe_identifier(col) for col in columns]
             set_clause = ", ".join([f'"{col}" = ?' for col in sanitized_columns])
             values = [str(row.get(col, "")) if row.get(col) is not None else "" for col in columns]
             values.append(record_id)
-            
+
             update_sql = f'UPDATE "{table_name}" SET {set_clause} WHERE "{id_col}" = ?'
             cursor.execute(update_sql, values)
-        
+
         conn.commit()
         print(f"✓ Data updated in {table_name}")
-        
+
     except Exception as e:
         conn.rollback()
         print(f"✗ Update Error: {e}")
@@ -122,32 +121,32 @@ def update_data_in_sqlite(db_fpath, table_name, data, id_col="created_at"):
 def data_to_sqlite(db_fpath, table_name, data):
     """Save data to SQLite with dynamic schema management"""
     table_name = _safe_identifier(table_name)
-    
+
     if not data or len(data) == 0:
         return
-    
+
     conn = sqlite3.connect(str(db_fpath))
     cursor = conn.cursor()
-    
+
     try:
         first_row = data[0]
-        
+
         columns_orig = list(first_row.keys())
         columns_safe = [_safe_identifier(key) for key in columns_orig]
         columns_safe.append("created_at")
-        
+
         cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
         table_exists = cursor.fetchone()
-        
+
         if not table_exists:
             col_defs = ", ".join([f'"{col}" TEXT' for col in columns_safe])
             create_sql = f'CREATE TABLE "{table_name}" ({col_defs}, id INTEGER PRIMARY KEY AUTOINCREMENT)'
             cursor.execute(create_sql)
             print(f"✓ Created table: {table_name}")
         else:
-            cursor.execute(f"PRAGMA table_info({table_name})")
+            cursor.execute(f'PRAGMA table_info("{table_name}")')
             existing_cols = {row[1] for row in cursor.fetchall()}
-            
+
             for col in columns_safe:
                 if col not in existing_cols:
                     try:
@@ -155,20 +154,20 @@ def data_to_sqlite(db_fpath, table_name, data):
                         print(f"✓ Added column: {col}")
                     except sqlite3.OperationalError as oe:
                         print(f"Column {col} already exists or error: {oe}")
-        
+
         for row in data:
             values = [str(row.get(orig_col, "")) if row.get(orig_col) is not None else "" for orig_col in columns_orig]
             values.append(pd.Timestamp.now().isoformat())
-            
+
             placeholders = ", ".join(["?" for _ in values])
             col_names = ", ".join([f'"{col}"' for col in columns_safe])
             insert_sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES ({placeholders})'
-            
+
             cursor.execute(insert_sql, values)
-        
+
         conn.commit()
         print(f"✓ Data saved to {table_name}")
-        
+
     except Exception as e:
         conn.rollback()
         print(f"✗ Save Error: {e}")
@@ -185,7 +184,6 @@ def data_from_sqlite(db_fpath, table_name):
     conn = sqlite3.connect(str(db_fpath))
     try:
         df = pd.read_sql_query(f'SELECT * FROM "{table_name}" ORDER BY created_at DESC', conn)
-        
         return df.to_dict(orient="records")
     except Exception as e:
         print(f"Error retrieving data from {table_name}: {e}")
@@ -214,12 +212,17 @@ def map_location(lib):
     selected_record_id, set_selected_record_id = lib.hooks.use_state(None)
     selected_rows, set_selected_rows = lib.hooks.use_state(set())
     edit_mode, set_edit_mode = lib.hooks.use_state(False)
-    edit_form_data, set_edit_form_data = lib.hooks.use_state({})
     delete_confirm_open, set_delete_confirm_open = lib.hooks.use_state(False)
 
     resources = lib.hooks.use_resources()
     db_fpath = resources.path / "map_location.sqlite"
     table_name = "Map_Location"
+
+    lib.register("sketch_canvas.js", "sc", host="/static/component_playground/js", default_export="SketchCanvas")
+    lib.register("react-tabs", "tabs", styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
+
+    color, set_color = lib.hooks.use_state("#100a0a")
+    width, set_width = lib.hooks.use_state(4)
 
     def auto_load_data():
         if not data_loaded:
@@ -250,27 +253,31 @@ def map_location(lib):
     def handle_submit(e):
         if is_loading:
             return
-        
+
         set_is_loading(True)
         set_error_message(None)
         set_submit_success(None)
         try:
-            form_data = e["formData"]
+            form_data = dict(e["formData"])
+
+            # Save sketch data as part of the same record if present
+            if "sketch" not in form_data:
+                form_data["sketch"] = ""
+
             data_to_sqlite(db_fpath, table_name, [form_data])
-            
+
             now = datetime.now()
             timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-            
+
             set_submit_success(True)
             set_success_message(f"✓ Form submitted successfully at {timestamp}")
-            
             set_form_key(str(uuid4()))
-            
+
             new_data = data_from_sqlite(db_fpath, table_name)
             set_displayed_data(new_data)
-            
+
             lib.utils.background_execute(
-                lambda: set_submit_success(None), 
+                lambda: set_submit_success(None),
                 delay_seconds=4
             )
         except Exception as err:
@@ -280,15 +287,43 @@ def map_location(lib):
         finally:
             set_is_loading(False)
 
-    lib.register("sketch_canvas.js", "sc", host="/static/component_playground/js", default_export="SketchCanvas")
-    lib.register("react-tabs", "tabs", styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
+    def handle_save_changes(e, existing_id):
+        if is_loading:
+            return
 
-    color, set_color = lib.hooks.use_state("#100a0a")
-    width, set_width = lib.hooks.use_state(4)
-    edit_color, set_edit_color = lib.hooks.use_state("#100a0a")
-    edit_width, set_edit_width = lib.hooks.use_state(4)
-    
-    # ==================== SUMMARY TABLE WITH CHECKBOXES ====================
+        set_is_loading(True)
+        set_error_message(None)
+        set_submit_success(None)
+
+        try:
+            form_data = dict(e["formData"])
+            form_data["created_at"] = existing_id
+
+            if "sketch" not in form_data:
+                existing_record = next((r for r in displayed_data if str(r.get("created_at")) == str(existing_id)), None)
+                form_data["sketch"] = existing_record.get("sketch", "") if existing_record else ""
+
+            update_data_in_sqlite(db_fpath, table_name, [form_data], id_col="created_at")
+
+            new_data = data_from_sqlite(db_fpath, table_name)
+            set_displayed_data(new_data)
+
+            set_edit_mode(False)
+            set_submit_success(True)
+            set_success_message("✓ Changes saved successfully!")
+
+            lib.utils.background_execute(
+                lambda: set_submit_success(None),
+                delay_seconds=4
+            )
+
+        except Exception as err:
+            print(f"Save changes error: {err}")
+            set_error_message(f"❌ Error saving changes: {str(err)[:100]}")
+            set_submit_success(False)
+        finally:
+            set_is_loading(False)
+
     def SummaryTable():
         if not displayed_data or len(displayed_data) == 0:
             return lib.html.div(
@@ -299,7 +334,7 @@ def map_location(lib):
                     fontSize="16px"
                 )
             )("📭 No data submitted yet. Submit a form to see data here.")
-        
+
         def toggle_row_selection(record_id):
             new_selected = set(selected_rows)
             if record_id in new_selected:
@@ -307,33 +342,32 @@ def map_location(lib):
             else:
                 new_selected.add(record_id)
             set_selected_rows(new_selected)
-        
+
         def handle_view_selected():
             if len(selected_rows) == 1:
                 record_id = list(selected_rows)[0]
                 set_selected_record_id(record_id)
-                set_edit_form_data({})
                 set_edit_mode(False)
                 set_view_mode("detail")
-        
+
         def handle_delete_selected():
             set_delete_confirm_open(True)
-        
+
         def confirm_delete_selected(e):
             set_is_loading(True)
             try:
                 for record_id in selected_rows:
                     delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="created_at")
-                
+
                 new_data = data_from_sqlite(db_fpath, table_name)
                 set_displayed_data(new_data)
                 set_selected_rows(set())
                 set_delete_confirm_open(False)
                 set_success_message(f"✓ {len(selected_rows)} record(s) deleted successfully!")
                 set_submit_success(True)
-                
+
                 lib.utils.background_execute(
-                    lambda: set_submit_success(None), 
+                    lambda: set_submit_success(None),
                     delay_seconds=3
                 )
             except Exception as err:
@@ -341,12 +375,12 @@ def map_location(lib):
                 set_error_message(f"❌ Error deleting records: {str(err)[:100]}")
             finally:
                 set_is_loading(False)
-        
+
         table_rows = []
         for record in displayed_data:
             record_id = record.get("created_at")
             is_selected = record_id in selected_rows
-            
+
             table_rows.append(
                 lib.html.tr(
                     style=lib.Style(
@@ -373,7 +407,7 @@ def map_location(lib):
                     ),
                 )
             )
-        
+
         return lib.html.div(
             style=lib.Style(
                 border="1px solid #ddd",
@@ -385,8 +419,6 @@ def map_location(lib):
             lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px", padding="15px"))(
                 f"💡 Total Records: {len(displayed_data)} | Selected: {len(selected_rows)}"
             ),
-            
-            # Action Buttons
             lib.html.div(style=lib.Style(padding="15px", borderBottom="1px solid #ddd", display="flex", gap="10px"))(
                 lib.bs.Button(
                     variant="info",
@@ -405,8 +437,6 @@ def map_location(lib):
                     f"🗑️ Delete ({len(selected_rows)})"
                 ),
             ),
-            
-            # Delete Confirmation Dialog
             lib.bs.Modal(
                 show=delete_confirm_open,
                 onHide=lambda: set_delete_confirm_open(False)
@@ -420,8 +450,6 @@ def map_location(lib):
                     lib.bs.Button(variant="danger", onClick=confirm_delete_selected, disabled=is_loading)("Delete")
                 )
             ),
-            
-            # Table
             lib.html.table(
                 style=lib.Style(
                     width="100%",
@@ -443,17 +471,16 @@ def map_location(lib):
                 )
             )
         )
-    
+
     def FormView(existing_id=None, form_edit_mode=True):
-        # If existing_id is not provided, then we are in "Submit" mode to add a new form, edit_mode must be True in this case
-        if existing_id is None and form_edit_mode == False:
+        if existing_id is None and form_edit_mode is False:
             raise Exception("This configuration does not make sense")
-        
+
         if displayed_data and existing_id:
             selected_record_data = next((r for r in displayed_data if str(r.get("created_at")) == str(existing_id)), None)
         else:
             selected_record_data = None
-        
+
         form_rows = []
         for row in form_fields:
             row_elements = []
@@ -468,18 +495,20 @@ def map_location(lib):
                             name=field_name,
                             type="text",
                             className="form-control",
-                            **{"value": selected_record_data.get(field_name, "")} if existing_id else {},
+                            defaultValue=selected_record_data.get(field_name, "") if selected_record_data else "",
                             style=lib.Style(width="100%", padding="8px", marginBottom="10px"),
                             disabled=existing_id is not None and not form_edit_mode
                         ),
                     )
                 )
             form_rows.append(lib.bs.Row()(*row_elements))
-        
+
+        existing_sketch = selected_record_data.get("sketch", "") if selected_record_data else ""
+
         return lib.bs.Container(
             lib.html.h2("Map Location Survey Form"),
 
-            lib.html.div(style=lib.Style(display="flex", gap="10px"))(
+            lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="15px"))(
                 lib.bs.Button(
                     variant="warning",
                     onClick=lambda e: set_edit_mode(not edit_mode),
@@ -496,7 +525,7 @@ def map_location(lib):
                     onClick=lambda e: set_view_mode("list")
                 )("← Back to List")
             ) if existing_id else lib.html.div(),
-            
+
             lib.bs.Alert(
                 variant="success",
                 className="success-alert",
@@ -512,15 +541,42 @@ def map_location(lib):
                         lib.html.strong(success_message),
                         lib.html.br(),
                         lib.html.small(style=lib.Style(color="#666"))(
-                            f"Record saved and data table updated"
+                            "Record saved and data table updated"
                         ) if submit_success else None,
                     )
                 )
             ) if submit_success else None,
-            
+
             lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-            
-            lib.bs.Form(key=form_key, onSubmit=handle_submit)(
+
+            lib.bs.Modal(
+                show=delete_confirm_open and existing_id is not None,
+                onHide=lambda: set_delete_confirm_open(False)
+            )(
+                lib.bs.ModalHeader()("Confirm Delete?"),
+                lib.bs.ModalBody()("Are you sure you want to delete this record? This action cannot be undone."),
+                lib.bs.ModalFooter()(
+                    lib.bs.Button(variant="secondary", onClick=lambda e: set_delete_confirm_open(False))("Cancel"),
+                    lib.bs.Button(
+                        variant="danger",
+                        disabled=is_loading,
+                        onClick=lambda e: (
+                            delete_record_from_sqlite(db_fpath, table_name, existing_id, id_col="created_at"),
+                            set_displayed_data(data_from_sqlite(db_fpath, table_name)),
+                            set_delete_confirm_open(False),
+                            set_view_mode("list"),
+                            set_selected_rows(set()),
+                            set_submit_success(True),
+                            set_success_message("✓ Record deleted successfully!")
+                        )
+                    )("Delete")
+                )
+            ) if existing_id else None,
+
+            lib.bs.Form(
+                key=f"{form_key}-{existing_id}-{edit_mode}",
+                onSubmit=(lambda e: handle_save_changes(e, existing_id)) if existing_id else handle_submit
+            )(
                 *form_rows,
                 lib.html.div(style=lib.Style(padding="20px"))(
                     lib.html.h1("LOCATION MAP"),
@@ -532,6 +588,7 @@ def map_location(lib):
                                 value=color,
                                 onChange=lambda e: set_color(e.target.value),
                                 style=lib.Style(marginRight="10px"),
+                                disabled=existing_id is not None and not form_edit_mode
                             ),
                             lib.html.label("Brush Width:"),
                             lib.html.input(
@@ -540,6 +597,7 @@ def map_location(lib):
                                 max="10",
                                 value=width,
                                 onChange=lambda e: set_width(int(e.target.value)),
+                                disabled=existing_id is not None and not form_edit_mode
                             ),
                         ),
                     ),
@@ -547,11 +605,18 @@ def map_location(lib):
                         lib.bs.Col(
                             lib.sc.SketchCanvas(
                                 name="sketch",
-                                style=lib.Style(border="0.0625rem solid #9c9c9c", borderRadius="0.25rem", width="100%", height="500px"),
+                                style=lib.Style(
+                                    border="0.0625rem solid #9c9c9c",
+                                    borderRadius="0.25rem",
+                                    width="100%",
+                                    height="500px"
+                                ),
                                 width="100%",
                                 height="500px",
                                 strokeWidth=width,
                                 strokeColor=color,
+                                initialValue=existing_sketch,
+                                readOnly=existing_id is not None and not form_edit_mode,
                             )
                         ),
                     ),
@@ -560,22 +625,25 @@ def map_location(lib):
                     type="submit",
                     variant="primary",
                     size="lg",
-                    disabled=is_loading,
+                    disabled=is_loading or (existing_id is not None and not form_edit_mode),
                     style=lib.Style(
                         opacity="0.7" if is_loading else "1",
                         cursor="not-allowed" if is_loading else "pointer",
-                        width="200px",
+                        width="220px",
                         padding="12px 24px",
                         fontSize="16px",
                         fontWeight="600"
                     )
                 )(
-                    lib.html.span(className="spinner")("⟳ ") if is_loading else "📤",
-                    "Submitting..." if is_loading else "Submit Form"
-                )
+                    lib.html.span(className="spinner")("⟳ ") if is_loading else ("💾 " if existing_id else "📤 "),
+                    "Saving Changes..." if is_loading and existing_id else
+                    "Submitting..." if is_loading else
+                    "Save Changes" if existing_id else
+                    "Submit Form"
+                ) if (existing_id is None or form_edit_mode) else None
             ),
-        )   
-    
+        )
+
     return lib.html.div()(
         lib.html.style()("""
             @keyframes spin {
@@ -600,20 +668,20 @@ def map_location(lib):
             .success-alert {
                 animation: slideDown 0.5s ease-out;
             }
-        """),   
+        """),
         lib.tabs.Tabs(
             lib.tabs.TabList(
                 lib.tabs.Tab("Add Data"),
                 lib.tabs.Tab("View Data")
             ),
-            
+
             lib.tabs.TabPanel(
                 FormView()
             ),
             lib.tabs.TabPanel(
                 lib.html.div(style=lib.Style(padding="20px"))(
                     lib.html.h2("📊 Form Data - All Submissions"),
-                    
+
                     lib.bs.Alert(
                         variant="success",
                         className="success-alert",
@@ -634,7 +702,7 @@ def map_location(lib):
                             )
                         )
                     ) if submit_success else None,
-                    
+
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
                     SummaryTable()
                 ) if view_mode != "detail" else FormView(selected_record_id, form_edit_mode=edit_mode)
