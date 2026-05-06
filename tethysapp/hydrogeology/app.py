@@ -247,26 +247,6 @@ def map_location(lib):
         [("expected_depth_to_screen_m", "Expected Depth to Screen (m)")],
     ]
 
-    form_rows = []
-    for row in form_fields:
-        row_elements = []
-        for field_name, label_text in row:
-            row_elements.append(
-                lib.bs.Col()(
-                    lib.html.label(
-                        style=lib.Style(display="block", fontWeight="bold", marginBottom="5px", fontSize="14px"),
-                        for_=field_name,
-                    )(f"{label_text}:"),
-                    lib.html.input(
-                        name=field_name,
-                        type="text",
-                        className="form-control",
-                        style=lib.Style(width="100%", padding="8px", marginBottom="10px"),
-                    ),
-                )
-            )
-        form_rows.append(lib.bs.Row()(*row_elements))
-
     def handle_submit(e):
         if is_loading:
             return
@@ -308,301 +288,8 @@ def map_location(lib):
     edit_color, set_edit_color = lib.hooks.use_state("#100a0a")
     edit_width, set_edit_width = lib.hooks.use_state(4)
     
-    def render_detail_view():
-        record = next((r for r in displayed_data if str(r.get("created_at")) == str(selected_record_id)), None)
-        
-        if not record:
-            return lib.html.div(
-                style=lib.Style(padding="20px", textAlign="center")
-            )(
-                lib.html.h3("Record not found"),
-                lib.bs.Button(onClick=lambda e: set_view_mode("list"))("← Back to List")
-            )
-        
-        # Initialize edit form data on first load
-        if not edit_form_data:
-            set_edit_form_data({**record})
-        
-        # Handle field changes in edit mode
-        def handle_field_change(field_name, value):
-            set_edit_form_data({
-                **edit_form_data,
-                field_name: value
-            })
-        
-        # Save edited data
-        def handle_save_edit(e):
-            set_is_loading(True)
-            try:
-                # Update only the changed record
-                updated_record = {
-                    **edit_form_data,
-                    "created_at": selected_record_id
-                }
-                update_data_in_sqlite(db_fpath, table_name, [updated_record], id_col="created_at")
-                
-                # Refresh displayed data
-                new_data = data_from_sqlite(db_fpath, table_name)
-                set_displayed_data(new_data)
-                
-                set_edit_mode(False)
-                set_success_message("✓ Record updated successfully!")
-                set_submit_success(True)
-                
-                lib.utils.background_execute(
-                    lambda: set_submit_success(None), 
-                    delay_seconds=4
-                )
-            except Exception as err:
-                print(f"Save error: {err}")
-                set_error_message(f"❌ Error saving record: {str(err)[:100]}")
-            finally:
-                set_is_loading(False)
-        
-        # Delete record
-        def handle_delete_record(e):
-            set_is_loading(True)
-            try:
-                delete_record_from_sqlite(db_fpath, table_name, selected_record_id, id_col="created_at")
-                
-                # Refresh displayed data
-                new_data = data_from_sqlite(db_fpath, table_name)
-                set_displayed_data(new_data)
-                
-                set_view_mode("list")
-                set_delete_confirm_open(False)
-                set_success_message("✓ Record deleted successfully!")
-                set_submit_success(True)
-                
-                lib.utils.background_execute(
-                    lambda: set_submit_success(None), 
-                    delay_seconds=3
-                )
-            except Exception as err:
-                print(f"Delete error: {err}")
-                set_error_message(f"❌ Error deleting record: {str(err)[:100]}")
-            finally:
-                set_is_loading(False)
-        
-        return lib.html.div(
-            style=lib.Style(padding="20px", maxWidth="1200px", margin="0 auto")
-        )(
-            # Header with back button and actions
-            lib.html.div(
-                style=lib.Style(display="flex", justifyContent="space-between", alignItems="center", marginBottom="20px")
-            )(
-                lib.html.h2(f"🔍 Survey Details - {edit_form_data.get('village', 'N/A')}"),
-                lib.html.div(style=lib.Style(display="flex", gap="10px"))(
-                    lib.bs.Button(
-                        variant="warning",
-                        onClick=lambda e: set_edit_mode(not edit_mode),
-                        disabled=is_loading
-                    )(
-                        "✏️ Edit" if not edit_mode else "⏹️ Cancel Edit"
-                    ),
-                    lib.bs.Button(
-                        variant="danger",
-                        onClick=lambda e: set_delete_confirm_open(True)
-                    )("🗑️ Delete"),
-                    lib.bs.Button(
-                        variant="secondary",
-                        onClick=lambda e: set_view_mode("list")
-                    )("← Back to List")
-                )
-            ),
-            
-            # Success/Error Alerts
-            lib.bs.Alert(
-                variant="success",
-                className="success-alert",
-                style=lib.Style(
-                    marginBottom="20px",
-                    borderLeft="4px solid #28a745",
-                    boxShadow="0 2px 4px rgba(40, 167, 69, 0.2)"
-                )
-            )(
-                lib.html.strong(success_message)
-            ) if submit_success else None,
-            
-            lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-            
-            # Delete Confirmation Dialog
-            lib.bs.Modal(
-                show=delete_confirm_open,
-                onHide=lambda: set_delete_confirm_open(False)
-            )(
-                lib.bs.ModalHeader()("Confirm Delete?"),
-                lib.bs.ModalBody()("Are you sure you want to delete this record? This action cannot be undone."),
-                lib.bs.ModalFooter()(
-                    lib.bs.Button(variant="secondary", onClick=lambda e: set_delete_confirm_open(False))("Cancel"),
-                    lib.bs.Button(variant="danger", onClick=handle_delete_record, disabled=is_loading)("Delete")
-                )
-            ),
-            
-            lib.html.hr(),
-            
-            # Survey Information Section - ONLY SHOW NON-EMPTY FIELDS
-            lib.html.div(
-                style=lib.Style(backgroundColor="white", padding="20px", borderRadius="8px", marginBottom="20px", border="1px solid #ddd")
-            )(
-                lib.html.h3("📋 Survey Information"),
-                
-                lib.html.div(
-                    style=lib.Style(display="grid", gridTemplateColumns="repeat(2, 1fr)", gap="15px")
-                )(
-                    *[
-                        lib.html.div(style=lib.Style(padding="12px", backgroundColor="#f9f9f9", borderRadius="4px", border="1px solid #eee"))(
-                            lib.html.strong(style=lib.Style(display="block", marginBottom="5px", color="#333", fontSize="13px"))(
-                                f"{key.replace('_', ' ').title()}:"
-                            ),
-                            lib.html.input(
-                                type="text",
-                                value=edit_form_data.get(key, ""),
-                                onChange=lambda e, k=key: handle_field_change(k, e.target.value),
-                                disabled=not edit_mode,
-                                style=lib.Style(
-                                    width="100%",
-                                    padding="8px",
-                                    border="1px solid #ddd" if edit_mode else "none",
-                                    borderRadius="4px",
-                                    backgroundColor="white" if edit_mode else "#f9f9f9",
-                                    color="#666",
-                                    cursor="text" if edit_mode else "default"
-                                )
-                            ) if edit_mode else lib.html.span(
-                                style=lib.Style(color="#666", fontSize="14px", fontWeight="500")
-                            )(
-                                str(edit_form_data.get(key, ""))
-                            )
-                        )
-                        for key in [k for k, v in edit_form_data.items() 
-                                   if k not in ["sketch", "created_at", "id"] and v]  # ONLY SHOW IF HAS VALUE
-                    ]
-                )
-            ),
-            
-            # Sketch Section with Edit
-            lib.html.div(
-                style=lib.Style(backgroundColor="white", padding="20px", borderRadius="8px", border="1px solid #ddd", marginBottom="20px")
-            )(
-                lib.html.h3("🎨 Location Map Sketch"),
-                
-                # Sketch Controls in Edit Mode
-                lib.html.div(
-                    style=lib.Style(marginBottom="15px", display="block" if edit_mode else "none")
-                )(
-                    lib.html.label("Draw Color:"),
-                    lib.html.input(
-                        type="color",
-                        value=edit_color,
-                        onChange=lambda e: set_edit_color(e.target.value),
-                        style=lib.Style(marginRight="10px", marginBottom="10px"),
-                    ),
-                    lib.html.label("Brush Width:"),
-                    lib.html.input(
-                        type="range",
-                        min="1",
-                        max="10",
-                        value=edit_width,
-                        onChange=lambda e: set_edit_width(int(e.target.value)),
-                        style=lib.Style(marginBottom="10px"),
-                    ),
-                ),
-                
-                # Sketch Canvas in Edit Mode
-                lib.html.div(
-                    style=lib.Style(
-                        width="100%",
-                        height="500px",
-                        border="2px solid #ddd",
-                        borderRadius="4px",
-                        overflow="hidden",
-                        backgroundColor="#f5f5f5",
-                        display="block" if edit_mode else "none"
-                    )
-                )(
-                    lib.sc.SketchCanvas(
-                        name="sketch_edit",
-                        style=lib.Style(border="none", borderRadius="0", width="100%", height="100%"),
-                        width="100%",
-                        height="500px",
-                        strokeWidth=edit_width,
-                        strokeColor=edit_color,
-                    ) if edit_mode else None
-                ),
-                
-                # View Mode - Display Sketch (RESTORED ORIGINAL CODE)
-                lib.html.div(
-                    style=lib.Style(
-                        width="100%",
-                        height="500px",
-                        border="2px solid #ddd",
-                        borderRadius="4px",
-                        overflow="hidden",
-                        backgroundColor="#f5f5f5",
-                        display="block" if not edit_mode else "none"
-                    )
-                )(
-                    lib.html.img(
-                        src=edit_form_data.get("sketch", ""),
-                        style=lib.Style(
-                            width="100%",
-                            height="100%",
-                            objectFit="contain"
-                        ),
-                        alt="Location Map Sketch"
-                    ) if edit_form_data.get("sketch") else lib.html.div(
-                        style=lib.Style(
-                            display="flex",
-                            alignItems="center",
-                            justifyContent="center",
-                            height="100%",
-                            color="#999",
-                            fontSize="16px"
-                        )
-                    )("📭 No sketch available")
-                )
-            ),
-            
-            # Save Button in Edit Mode
-            lib.html.div(
-                style=lib.Style(display="block" if edit_mode else "none", marginTop="20px")
-            )(
-                lib.bs.Button(
-                    variant="success",
-                    size="lg",
-                    onClick=handle_save_edit,
-                    disabled=is_loading,
-                    style=lib.Style(
-                        width="200px",
-                        padding="12px 24px",
-                        fontSize="16px",
-                        fontWeight="600"
-                    )
-                )(
-                    "💾 Save Changes"
-                )
-            ),
-            
-            # Metadata
-            lib.html.div(
-                style=lib.Style(
-                    padding="12px",
-                    backgroundColor="#f0f0f0",
-                    borderRadius="4px",
-                    fontSize="12px",
-                    color="#666",
-                    marginTop="20px"
-                )
-            )(
-                lib.html.p()(
-                    f"📅 Submitted: {record.get('created_at', 'N/A')}"
-                )
-            ),
-        )
-    
     # ==================== SUMMARY TABLE WITH CHECKBOXES ====================
-    def render_summary_table():
+    def SummaryTable():
         if not displayed_data or len(displayed_data) == 0:
             return lib.html.div(
                 style=lib.Style(
@@ -757,6 +444,138 @@ def map_location(lib):
             )
         )
     
+    def FormView(existing_id=None, form_edit_mode=True):
+        # If existing_id is not provided, then we are in "Submit" mode to add a new form, edit_mode must be True in this case
+        if existing_id is None and form_edit_mode == False:
+            raise Exception("This configuration does not make sense")
+        
+        if displayed_data and existing_id:
+            selected_record_data = next((r for r in displayed_data if str(r.get("created_at")) == str(existing_id)), None)
+        else:
+            selected_record_data = None
+        
+        form_rows = []
+        for row in form_fields:
+            row_elements = []
+            for field_name, label_text in row:
+                row_elements.append(
+                    lib.bs.Col()(
+                        lib.html.label(
+                            style=lib.Style(display="block", fontWeight="bold", marginBottom="5px", fontSize="14px"),
+                            for_=field_name,
+                        )(f"{label_text}:"),
+                        lib.html.input(
+                            name=field_name,
+                            type="text",
+                            className="form-control",
+                            **{"value": selected_record_data.get(field_name, "")} if existing_id else {},
+                            style=lib.Style(width="100%", padding="8px", marginBottom="10px"),
+                            disabled=existing_id is not None and not form_edit_mode
+                        ),
+                    )
+                )
+            form_rows.append(lib.bs.Row()(*row_elements))
+        
+        return lib.bs.Container(
+            lib.html.h2("Map Location Survey Form"),
+
+            lib.html.div(style=lib.Style(display="flex", gap="10px"))(
+                lib.bs.Button(
+                    variant="warning",
+                    onClick=lambda e: set_edit_mode(not edit_mode),
+                    disabled=is_loading
+                )(
+                    "✏️ Edit" if not edit_mode else "⏹️ Cancel Edit"
+                ),
+                lib.bs.Button(
+                    variant="danger",
+                    onClick=lambda e: set_delete_confirm_open(True)
+                )("🗑️ Delete"),
+                lib.bs.Button(
+                    variant="secondary",
+                    onClick=lambda e: set_view_mode("list")
+                )("← Back to List")
+            ) if existing_id else lib.html.div(),
+            
+            lib.bs.Alert(
+                variant="success",
+                className="success-alert",
+                style=lib.Style(
+                    marginBottom="20px",
+                    borderLeft="4px solid #28a745",
+                    boxShadow="0 2px 4px rgba(40, 167, 69, 0.2)"
+                )
+            )(
+                lib.html.div(style=lib.Style(display="flex", alignItems="center", gap="10px"))(
+                    lib.html.span(style=lib.Style(fontSize="20px"))("✓"),
+                    lib.html.div()(
+                        lib.html.strong(success_message),
+                        lib.html.br(),
+                        lib.html.small(style=lib.Style(color="#666"))(
+                            f"Record saved and data table updated"
+                        ) if submit_success else None,
+                    )
+                )
+            ) if submit_success else None,
+            
+            lib.bs.Alert(variant="danger")(error_message) if error_message else None,
+            
+            lib.bs.Form(key=form_key, onSubmit=handle_submit)(
+                *form_rows,
+                lib.html.div(style=lib.Style(padding="20px"))(
+                    lib.html.h1("LOCATION MAP"),
+                    lib.bs.Row(
+                        lib.bs.Col(
+                            lib.html.label("Draw Color:"),
+                            lib.html.input(
+                                type="color",
+                                value=color,
+                                onChange=lambda e: set_color(e.target.value),
+                                style=lib.Style(marginRight="10px"),
+                            ),
+                            lib.html.label("Brush Width:"),
+                            lib.html.input(
+                                type="range",
+                                min="1",
+                                max="10",
+                                value=width,
+                                onChange=lambda e: set_width(int(e.target.value)),
+                            ),
+                        ),
+                    ),
+                    lib.bs.Row(
+                        lib.bs.Col(
+                            lib.sc.SketchCanvas(
+                                name="sketch",
+                                style=lib.Style(border="0.0625rem solid #9c9c9c", borderRadius="0.25rem", width="100%", height="500px"),
+                                width="100%",
+                                height="500px",
+                                strokeWidth=width,
+                                strokeColor=color,
+                            )
+                        ),
+                    ),
+                ),
+                lib.bs.Button(
+                    type="submit",
+                    variant="primary",
+                    size="lg",
+                    disabled=is_loading,
+                    style=lib.Style(
+                        opacity="0.7" if is_loading else "1",
+                        cursor="not-allowed" if is_loading else "pointer",
+                        width="200px",
+                        padding="12px 24px",
+                        fontSize="16px",
+                        fontWeight="600"
+                    )
+                )(
+                    lib.html.span(className="spinner")("⟳ ") if is_loading else "📤",
+                    "Submitting..." if is_loading else "Submit Form"
+                )
+            ),
+        )   
+    
     return lib.html.div()(
         lib.html.style()("""
             @keyframes spin {
@@ -789,89 +608,7 @@ def map_location(lib):
             ),
             
             lib.tabs.TabPanel(
-                lib.html.div(style=lib.Style(padding="20px"))(
-                    lib.html.h2("Map Location Survey Form"),
-                    
-                    lib.bs.Alert(
-                        variant="success",
-                        className="success-alert",
-                        style=lib.Style(
-                            marginBottom="20px",
-                            borderLeft="4px solid #28a745",
-                            boxShadow="0 2px 4px rgba(40, 167, 69, 0.2)"
-                        )
-                    )(
-                        lib.html.div(style=lib.Style(display="flex", alignItems="center", gap="10px"))(
-                            lib.html.span(style=lib.Style(fontSize="20px"))("✓"),
-                            lib.html.div()(
-                                lib.html.strong(success_message),
-                                lib.html.br(),
-                                lib.html.small(style=lib.Style(color="#666"))(
-                                    f"Record saved and data table updated"
-                                ) if submit_success else None,
-                            )
-                        )
-                    ) if submit_success else None,
-                    
-                    lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-                    
-                    lib.bs.Form(key=form_key, onSubmit=handle_submit)(
-                        lib.bs.Container()(
-                            *form_rows,
-                            lib.html.div(style=lib.Style(padding="20px"))(
-                                lib.html.h1("LOCATION MAP"),
-                                lib.bs.Row(
-                                    lib.bs.Col(
-                                        lib.html.label("Draw Color:"),
-                                        lib.html.input(
-                                            type="color",
-                                            value=color,
-                                            onChange=lambda e: set_color(e.target.value),
-                                            style=lib.Style(marginRight="10px"),
-                                        ),
-                                        lib.html.label("Brush Width:"),
-                                        lib.html.input(
-                                            type="range",
-                                            min="1",
-                                            max="10",
-                                            value=width,
-                                            onChange=lambda e: set_width(int(e.target.value)),
-                                        ),
-                                    ),
-                                ),
-                                lib.bs.Row(
-                                    lib.bs.Col(
-                                        lib.sc.SketchCanvas(
-                                            name="sketch",
-                                            style=lib.Style(border="0.0625rem solid #9c9c9c", borderRadius="0.25rem", width="100%", height="500px"),
-                                            width="100%",
-                                            height="500px",
-                                            strokeWidth=width,
-                                            strokeColor=color,
-                                        )
-                                    ),
-                                ),
-                            ),
-                            lib.bs.Button(
-                                type="submit",
-                                variant="primary",
-                                size="lg",
-                                disabled=is_loading,
-                                style=lib.Style(
-                                    opacity="0.7" if is_loading else "1",
-                                    cursor="not-allowed" if is_loading else "pointer",
-                                    width="200px",
-                                    padding="12px 24px",
-                                    fontSize="16px",
-                                    fontWeight="600"
-                                )
-                            )(
-                                lib.html.span(className="spinner")("⟳ ") if is_loading else "📤",
-                                "Submitting..." if is_loading else "Submit Form"
-                            )
-                        ),
-                    ),
-                )
+                FormView()
             ),
             lib.tabs.TabPanel(
                 lib.html.div(style=lib.Style(padding="20px"))(
@@ -899,9 +636,8 @@ def map_location(lib):
                     ) if submit_success else None,
                     
                     lib.bs.Alert(variant="danger")(error_message) if error_message else None,
-                    
-                    render_summary_table()
-                ) if view_mode != "detail" else render_detail_view()
+                    SummaryTable()
+                ) if view_mode != "detail" else FormView(selected_record_id, form_edit_mode=edit_mode)
             ),
         ),
     )
