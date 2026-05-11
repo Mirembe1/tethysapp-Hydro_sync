@@ -191,6 +191,160 @@ def data_from_sqlite(db_fpath, table_name):
     finally:
         conn.close()
 
+@component
+def create_editable_data_table(lib, row_data, set_row_data, id_col, db_fpath=None, table_name=None):
+    """Create editable tabulated view of form data using AgGridReact"""
+    selected_row, set_selected_row = lib.hooks.use_state(None)
+    edit_mode, set_edit_mode = lib.hooks.use_state(False)
+    edit_confirm_open, set_edit_confirm_open = lib.hooks.use_state(False)
+    delete_confirm_open, set_delete_confirm_open = lib.hooks.use_state(False)
+    lib.bs.ModalFooter()  ##preload ModalFooter to ensure it renders properly
+    
+    def handle_record_delete(e):
+        if selected_row is not None:
+            deleted_row = None
+            new_row_data = []
+            for row in row_data:
+                if str(row.get(id_col)) == str(selected_row):
+                    deleted_row = row
+                else:
+                    new_row_data.append(row)
+            
+            # Delete record from database
+            if db_fpath and table_name:
+                delete_record_from_sqlite(db_fpath, table_name, deleted_row.get(id_col), id_col=id_col)
+            else:
+                # Fallback for Map Location page
+                delete_record_from_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", deleted_row.get(id_col), id_col=id_col)
+            # Updates table view to omit deleted row
+            set_row_data(new_row_data)
+            set_delete_confirm_open(False)
+            # Since the selected row is now deleted, it can no longer be selected
+            set_selected_row(None)
+    
+    if not row_data or len(row_data) == 0:
+        return lib.html.div(
+            style=lib.Style(
+                padding="20px",
+                textAlign="center",
+                color="#999",
+                fontSize="16px"
+            )
+        )("📭 No data submitted yet. Submit a form to see data here.")
+    
+    first_row = row_data[0]
+    
+    col_defs = []
+    for key in first_row.keys():
+        value = first_row[key]
+        col_type = "agNumberColumnFilter" if isinstance(value, (int, float)) else "agTextColumnFilter"
+        
+        col_defs.append({
+            "field": key,
+            "filter": col_type,
+            "sortable": True,
+            "resizable": True,
+            "minWidth": 120,
+            "editable": edit_mode,
+            "wrapText": True,
+            "autoHeight": True,
+        })
+    
+    default_col_def = lib.Props(
+        flex=1,
+        resizable=True,
+        sortable=True,
+        filter=True,
+        editable=False,
+        wrapText=True,
+        autoHeight=True
+    )
+    
+    def handle_cell_edit(e):
+        """Handle cell editing and call parent callback"""
+        if set_row_data and callable(set_row_data):
+            updated_row_id = e.data.get(id_col)
+            updated_row = e.data
+            print(f"Edited row with {id_col}={updated_row_id}: {updated_row}")
+            new_row_data = [row if str(row.get(id_col)) != str(updated_row_id) else updated_row for row in row_data]
+            set_row_data(new_row_data)
+            if db_fpath and table_name:
+                update_data_in_sqlite(db_fpath, table_name, [updated_row], id_col=id_col)
+            else:
+                # Fallback for Map Location page
+                update_data_in_sqlite(lib.hooks.use_resources().path / "my_database.sqlite", "Map_Location", [updated_row], id_col=id_col)
+    
+    return lib.html.div(
+        style=lib.Style(
+            height="600px",
+            border="1px solid #ddd",
+            borderRadius="4px",
+            overflow="hidden",
+            backgroundColor="white"
+        ),
+    )(
+        lib.html.p(style=lib.Style(fontSize="12px", color="#666", marginBottom="15px"))(
+            f"💡 Total Records: {len(row_data)}{' | double click a cell to edit' if edit_mode else ''}"
+        ),  
+        lib.html.div( 
+            # Edit Button
+            lib.bs.Button(
+                variant="secondary",
+                onClick=lambda e: set_edit_confirm_open(True) if not edit_mode else set_edit_mode(False),
+            )(
+                "✏️ Edit" if not edit_mode else "⏹️ Stop Editing"
+            ),
+            # Delete Button
+            lib.bs.Button(
+                variant="danger",
+                onClick=lambda e: set_delete_confirm_open(True),
+                disabled=selected_row is None
+            )("🗑️ Delete"),
+        ),
+
+        # Edit/Delete confirmation dialog
+        lib.bs.Modal(
+            show=edit_confirm_open or delete_confirm_open,
+            onHide=lambda: (set_edit_confirm_open(False), set_delete_confirm_open(False))
+        )(
+            lib.bs.ModalHeader()(f"Confirm {'Edit Mode' if edit_confirm_open else 'Delete Record'}?"),
+            lib.bs.ModalBody()(
+                "Enable editing mode? Double-click cells to edit data." if edit_confirm_open else "Are you sure you want to delete this record? This action cannot be undone."
+            ),
+            lib.bs.ModalFooter()(
+                lib.bs.Button(variant="secondary", onClick=lambda e: (set_edit_confirm_open(False), set_delete_confirm_open(False)))("Cancel"),
+                lib.bs.Button(
+                    variant="primary" if edit_confirm_open else "danger",
+                    onClick=lambda e: (
+                        set_edit_confirm_open(False),
+                        set_edit_mode(True) if edit_confirm_open else handle_record_delete(e)
+                    ),
+                )("Confirm")
+            ),
+        ),
+        lib.ag.AgGridReact(
+            key="my-table",
+            rowData=row_data,
+            columnDefs=col_defs,
+            rowId=id_col,
+            defaultColDef=default_col_def,
+            pagination=True,
+            paginationPageSize=20,
+            paginationPageSizeSelector=[10, 20, 50, 100],
+            domLayout="autoHeight",
+            enableBrowserTooltips=True,
+            rowSelection=lib.Props(
+                mode='singleRow',
+                checkboxes=True,
+                enableClickSelection=True,
+            ),
+            onSelectionChanged=lambda e: set_selected_row(
+                e.selectedNodes[0].id if e.selectedNodes else None
+            ),
+            onCellValueChanged=handle_cell_edit,
+        )
+    )
+
 
 @App.page
 def home(lib):
@@ -199,7 +353,7 @@ def home(lib):
     )
 
 
-@_resolve_page_decorator()
+@App.page
 def map_location(lib):
     displayed_data, set_displayed_data = lib.hooks.use_state([])
     submit_success, set_submit_success = lib.hooks.use_state(None)
