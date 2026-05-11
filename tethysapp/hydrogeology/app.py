@@ -1318,7 +1318,7 @@ async def analyze_rock_from_bytes(api_key, data_bytes, mime_type="image/jpeg"):
     def _request_gemini():
         endpoint = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-1.5-flash:generateContent?key={api_key}"
+            f"gemini-2.5-flash:generateContent?key={api_key}"
         )
         payload = {
             "contents": [
