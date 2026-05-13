@@ -1079,17 +1079,23 @@ async def analyze_rock_from_bytes(api_key, data_bytes, mime_type="image/jpeg"):
 
 
 @App.page
-def webcam(lib):
+def image_analysis(lib):
     lib.register("react-markdown", "md", default_export="Markdown")
+    lib.register(
+        "react-tabs", "tabs",
+        styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"]
+    )
     processing,       set_processing       = lib.hooks.use_state(False)
     analysis_results, set_analysis_results = lib.hooks.use_state(None)
+    image,           set_image            = lib.hooks.use_state(None)
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
 
     async def handle_file_upload(e):
         set_processing(True)
         form_data = e["formData"]
-        file_data = form_data.get("upload")
-        with urlopen(file_data) as response:
+        image_data = form_data.get("upload")
+        set_image(image_data)
+        with urlopen(image_data) as response:
             mime_type  = response.info().get_content_type()
             data_bytes = response.read()
         result = await analyze_rock_from_bytes(gemini_api_key, data_bytes, mime_type=mime_type)
@@ -1099,27 +1105,99 @@ def webcam(lib):
         )
         set_processing(False)
 
+    resources  = lib.hooks.use_resources()
+    db_fpath   = resources.path / "image_analysis.sqlite"
+    table_name = "Image_Analysis"
+    db = use_db_state(lib, db_fpath, table_name)
+    form_fields = [
+        [("village", "Village"), ("image", "image"), ("analysis", "analysis"), ("formation", "Formation")],
+        
+    ]
+    summary_cols = [
+        ("village",    "Village"),
+        ("formation",  "Formation"),
+    ]
+    SummaryTable, _, _ = make_record_manager(
+        lib, db,
+        form_fields=form_fields,
+        summary_cols=summary_cols,
+        page_title="Map Location Survey Form",
+    )
+
     return lib.tethys.Display(
-        lib.html.div(
-            style={
-                "padding": "20px", "max-width": "800px",
-                "margin": "0 auto", "font-family": "Arial, sans-serif"
-            }
-        )(
-            lib.html.h1("Rock Identifier with Gemini AI"),
-            lib.lo.LoadingOverlay(active=processing, spinner=True)(
-                lib.bs.Form(
-                    onSubmit=event(handle_file_upload, prevent_default=True, stop_propagation=True)
-                )(
-                    lib.html.h3("Upload Image"),
-                    lib.html.input(
-                        key=id(analysis_results), type="file",
-                        name="upload", accept="image/*"
+        lib.html.div()(
+            lib.html.style()(SHARED_CSS),
+            lib.tabs.Tabs(
+                lib.tabs.TabList(
+                    lib.tabs.Tab("perform analysis"),
+                    lib.tabs.Tab("Analysis Archive"),
+                ),
+                lib.tabs.TabPanel(
+                    lib.html.div(
+                        style={
+                            "padding": "20px", "max-width": "800px",
+                            "margin": "0 auto", "font-family": "Arial, sans-serif"
+                        }
+                    )(
+                        lib.html.h1("Rock Identifier with Gemini AI"),
+                        lib.lo.LoadingOverlay(active=processing, spinner=True)(
+                            lib.bs.Form(
+                                onSubmit=event(handle_file_upload, prevent_default=True, stop_propagation=True)
+                            )(
+                                lib.html.h3("Upload Image"),
+                                lib.html.input(
+                                    key=id(analysis_results), type="file",
+                                    name="upload", accept="image/*"
+                                ),
+                                lib.html.button(type="submit")("Analyze File"),
+                            ) 
+                        ) if not analysis_results else lib.bs.Form(
+                            lib.bs.Button( onClick=lambda e: set_analysis_results(None) )("← Analyze Another"),
+                            lib.html.h3("Analysis Result"),
+                            lib.html.img(src=image, style=lib.Style(maxWidth="100%", marginTop="20px")),
+                            lib.html.hr(),
+                            lib.md.Markdown(analysis_results if analysis_results else "No analysis results yet."),
+                            lib.html.div(
+                                lib.html.label(
+                                    style=lib.Style(display="block", fontWeight="bold",
+                                                    marginBottom="5px", fontSize="14px"),
+                                    for_='formation',
+                                )("Formation:"),
+                                lib.html.input(
+                                    name='formation',
+                                    type="text",
+                                    className="form-control",
+                                    style=lib.Style(width="100%", padding="8px", marginBottom="10px"),
+                                ),
+                            ) if analysis_results else None,
+                            lib.bs.Button(
+                                type="submit",
+                                variant="primary",
+                                size="lg",
+                                disabled=db["is_loading"] ,
+                                style=lib.Style(
+                                    opacity="0.7" if db["is_loading"] else "1",
+                                    cursor="not-allowed" if db["is_loading"] else "pointer",
+                                    width="220px", padding="12px 24px",
+                                    fontSize="16px", fontWeight="600"
+                                )
+                            )(
+                                lib.html.span(className="spinner")("⟳ ") if db["is_loading"] else (
+                                    "💾 " 
+                                ),
+                                "Saving..." if db["is_loading"] else
+                                "Submitting..." if db["is_loading"] else
+                                "Save Analysis"
+                            ) if analysis_results else None,
+                        ),
                     ),
-                    lib.html.button(type="submit")("Analyze File"),
+                ),
+                lib.tabs.TabPanel(
+                    lib.html.div(style=lib.Style(padding="20px"))(
+                        lib.html.h2(f"📊 image analysis — All Submissions"),
+                        SummaryTable()
+                    ) 
                 ),
             ),
-            lib.html.hr(),
-            lib.md.Markdown(analysis_results if analysis_results else "No analysis results yet."),
-        ),
+        )
     )
