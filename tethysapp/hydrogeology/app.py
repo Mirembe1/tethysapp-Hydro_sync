@@ -163,30 +163,10 @@ def data_from_sqlite(db_fpath, table_name):
 
 
 # ---------------------------------------------------------------------------
-# Generalised database hook  (plain function, NOT @component)
+# Generalised database hook
 # ---------------------------------------------------------------------------
 
 def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
-    """
-    Call at the top of any page to get all DB-related state and actions.
-
-    Usage:
-        db = use_db_state(lib, resources.path / "file.sqlite", "TableName")
-
-    Access state:
-        db["displayed_data"]
-        db["submit_success"]
-        db["success_message"]
-        db["error_message"]
-        db["is_loading"]
-        db["form_key"]
-
-    Call actions:
-        db["save"]([row_dict])
-        db["update"]([row_dict])
-        db["delete"](record_id)
-        db["reload"]()
-    """
     displayed_data,  set_displayed_data  = lib.hooks.use_state([])
     submit_success,  set_submit_success  = lib.hooks.use_state(None)
     success_message, set_success_message = lib.hooks.use_state("")
@@ -331,16 +311,6 @@ def status_alerts(lib, submit_success, success_message, error_message, extra_det
 
 # ---------------------------------------------------------------------------
 # Generalised SummaryTable + FormView
-#
-# summary_cols  – list of (field_name, header_label) shown as columns in the
-#                 summary list.  e.g. [("village","Village"),("mapped_by","By")]
-#
-# form_fields   – same structure your pages already use:
-#                 list of rows, each row is a list of (field_name, label) pairs
-#
-# extra_form_content – optional callable(lib, existing_id, form_edit_mode)
-#                      that returns additional UI rendered inside the form
-#                      (used by map_location for the sketch canvas)
 # ---------------------------------------------------------------------------
 
 def make_record_manager(
@@ -352,14 +322,6 @@ def make_record_manager(
     extra_form_content=None,
     id_col="created_at",
 ):
-    """
-    Returns (SummaryTable, FormView) functions wired to the given db hook.
-
-    summary_cols  : [(field_name, header_label), ...]
-    form_fields   : [[(field_name, label), ...], ...]   — rows of fields
-    extra_form_content : callable(lib, existing_id, form_edit_mode) -> node | None
-    """
-
     view_mode,           set_view_mode           = lib.hooks.use_state("list")
     selected_record_id,  set_selected_record_id  = lib.hooks.use_state(None)
     selected_rows,       set_selected_rows       = lib.hooks.use_state(set())
@@ -546,7 +508,6 @@ def make_record_manager(
         return lib.bs.Container(
             lib.html.h2(page_title),
 
-            # Detail toolbar (only shown when viewing a saved record)
             lib.html.div(
                 style=lib.Style(display="flex", gap="10px", marginBottom="15px")
             )(
@@ -573,7 +534,6 @@ def make_record_manager(
                 extra_detail="Record saved and data table updated" if db["submit_success"] else None,
             ),
 
-            # Delete confirmation modal (detail view)
             lib.bs.Modal(
                 show=delete_confirm_open and existing_id is not None,
                 onHide=lambda: set_delete_confirm_open(False)
@@ -604,10 +564,8 @@ def make_record_manager(
             )(
                 *form_rows,
 
-                # Optional extra content (e.g. sketch canvas for map_location)
                 extra_form_content(lib, existing_id, form_edit_mode) if extra_form_content else None,
 
-                # Submit / Save button
                 lib.bs.Button(
                     type="submit",
                     variant="primary",
@@ -632,11 +590,6 @@ def make_record_manager(
         )
 
     def TabView():
-        """
-        Returns the full two-tab layout:
-          Tab 1 – blank form for new entries
-          Tab 2 – summary list, or detail view when a record is selected
-        """
         return lib.html.div()(
             lib.html.style()(SHARED_CSS),
             lib.tabs.Tabs(
@@ -716,7 +669,6 @@ def map_location(lib):
     ]
 
     def sketch_content(lib, existing_id, form_edit_mode):
-        """Extra form content: the sketch canvas / image viewer"""
         selected_record_data = None
         if db["displayed_data"] and existing_id:
             selected_record_data = next(
@@ -809,7 +761,6 @@ def VES_FORM(lib):
     ]
 
     def ves_extra(lib, existing_id, form_edit_mode):
-        """Data grid and chart shown below the VES form fields"""
         return lib.html.div()(
             lib.html.div(
                 style=lib.Style(backgroundColor="white", padding="20px", borderRadius="8px", marginTop="20px")
@@ -878,7 +829,6 @@ def resistivity_survey_form(lib):
         ]
     })
 
-    # form_fields for the standard text inputs at the top
     form_fields = [
         [("location_point", "Location Point (Site ID)")],
     ]
@@ -917,10 +867,8 @@ def resistivity_survey_form(lib):
                     pass
 
     def resistivity_extra(lib, existing_id, form_edit_mode):
-        """MN/2 selector, data entry table and log-log chart"""
         is_readonly = existing_id is not None and not form_edit_mode
         return lib.html.div()(
-            # MN/2 selector
             lib.html.div(style=lib.Style(display="flex", gap="20px", margin="20px 0"))(
                 lib.html.div(style=lib.Style(flex="0 0 300px"))(
                     lib.html.label("MN/2 (constant):"),
@@ -936,7 +884,6 @@ def resistivity_survey_form(lib):
                     ),
                 ),
             ),
-            # Table + chart side by side
             lib.html.div(style=lib.Style(display="flex", gap="20px", marginBottom="20px"))(
                 lib.html.div(style=lib.Style(
                     flex="0 0 550px", border="1px solid #999",
@@ -1085,15 +1032,30 @@ def image_analysis(lib):
         "react-tabs", "tabs",
         styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"]
     )
+
+    # ── State ──────────────────────────────────────────────────────────────
     processing,       set_processing       = lib.hooks.use_state(False)
-    analysis_results, set_analysis_results = lib.hooks.use_state(None)
-    image,           set_image            = lib.hooks.use_state(None)
+    analysis_results, set_analysis_results = lib.hooks.use_state(None)  # Gemini text
+    image,            set_image            = lib.hooks.use_state(None)   # data-URL
+
+    # Archive navigation state
+    archive_view,     set_archive_view     = lib.hooks.use_state("list")      # "list" | "detail"
+    selected_record,  set_selected_record  = lib.hooks.use_state(None)        # full record dict
+    selected_rows,    set_selected_rows    = lib.hooks.use_state(set())
+    delete_confirm,   set_delete_confirm   = lib.hooks.use_state(False)
+
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
 
+    # ── DB ─────────────────────────────────────────────────────────────────
+    resources  = lib.hooks.use_resources()
+    db_fpath   = resources.path / "image_analysis.sqlite"
+    table_name = "Image_Analysis"
+    db = use_db_state(lib, db_fpath, table_name)
+
+    # ── Upload & analyse ───────────────────────────────────────────────────
     async def handle_file_upload(e):
         set_processing(True)
-        form_data = e["formData"]
-        image_data = form_data.get("upload")
+        image_data = e["formData"].get("upload")
         set_image(image_data)
         with urlopen(image_data) as response:
             mime_type  = response.info().get_content_type()
@@ -1105,44 +1067,280 @@ def image_analysis(lib):
         )
         set_processing(False)
 
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "image_analysis.sqlite"
-    table_name = "Image_Analysis"
-    db = use_db_state(lib, db_fpath, table_name)
-    form_fields = [
-        [("village", "Village"), ("image", "image"), ("analysis", "analysis"), ("formation", "Formation")],
-        
-    ]
-    summary_cols = [
-        ("village",    "Village"),
-        ("formation",  "Formation"),
-    ]
-    SummaryTable, _, _ = make_record_manager(
-        lib, db,
-        form_fields=form_fields,
-        summary_cols=summary_cols,
-        page_title="Map Location Survey Form",
-    )
+    # ── Save: formation + village from form, image + analysis from state ───
+    def handle_save_analysis(e):
+        form_data  = dict(e["formData"])
+        db["save"]([{
+            "village":   form_data.get("village", ""),
+            "formation": form_data.get("formation", ""),
+            "image":     image,             # data-URL already in state
+            "analysis":  analysis_results,  # Gemini text already in state
+        }])
 
+    # ── Archive helpers ────────────────────────────────────────────────────
+    def toggle_row(rid):
+        new_sel = set(selected_rows)
+        if rid in new_sel:
+            new_sel.discard(rid)
+        else:
+            new_sel.add(rid)
+        set_selected_rows(new_sel)
+
+    def open_detail():
+        if len(selected_rows) == 1:
+            rid = list(selected_rows)[0]
+            record = next(
+                (r for r in db["displayed_data"] if str(r.get("created_at")) == str(rid)),
+                None
+            )
+            if record:
+                set_selected_record(record)
+                set_archive_view("detail")
+
+    def do_delete():
+        for rid in list(selected_rows):
+            db["delete"](rid)
+        set_selected_rows(set())
+        set_delete_confirm(False)
+
+    # ── Archive list view ──────────────────────────────────────────────────
+    def ArchiveList():
+        data = db["displayed_data"]
+        if not data:
+            return lib.html.div(
+                style=lib.Style(padding="40px", textAlign="center", color="#999", fontSize="16px")
+            )("📭 No analyses saved yet.")
+
+        rows = [
+            lib.html.tr(
+                style=lib.Style(
+                    borderBottom="1px solid #ddd",
+                    backgroundColor="#e8f4f8" if record.get("created_at") in selected_rows else "#fff"
+                )
+            )(
+                lib.html.td(style=lib.Style(padding="10px", textAlign="center"))(
+                    lib.html.input(
+                        type="checkbox",
+                        checked=record.get("created_at") in selected_rows,
+                        onChange=lambda e, rid=record.get("created_at"): toggle_row(rid),
+                        style=lib.Style(cursor="pointer", width="16px", height="16px")
+                    )
+                ),
+                lib.html.td(style=lib.Style(padding="10px"))(str(record.get("village", "—"))),
+                lib.html.td(style=lib.Style(padding="10px"))(str(record.get("formation", "—"))),
+                lib.html.td(style=lib.Style(padding="10px", maxWidth="300px", overflow="hidden",
+                                             whiteSpace="nowrap", textOverflow="ellipsis"))(
+                    str(record.get("analysis", "—"))[:80] + "…"
+                    if len(str(record.get("analysis", ""))) > 80
+                    else str(record.get("analysis", "—"))
+                ),
+                lib.html.td(style=lib.Style(padding="10px", fontSize="12px", color="#666"))(
+                    str(record.get("created_at", "—"))
+                ),
+            )
+            for record in data
+        ]
+
+        return lib.html.div()(
+            # Toolbar
+            lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="15px",
+                                          alignItems="center"))(
+                lib.html.span(style=lib.Style(fontSize="13px", color="#666"))(
+                    f"💡 {len(data)} record(s) | {len(selected_rows)} selected"
+                ),
+                lib.bs.Button(
+                    variant="info", size="sm",
+                    onClick=lambda e: open_detail(),
+                    disabled=len(selected_rows) != 1,
+                    style=lib.Style(marginLeft="auto")
+                )("👁️ View"),
+                lib.bs.Button(
+                    variant="danger", size="sm",
+                    onClick=lambda e: set_delete_confirm(True),
+                    disabled=len(selected_rows) == 0
+                )(f"🗑️ Delete ({len(selected_rows)})"),
+            ),
+
+            # Delete confirmation modal
+            lib.bs.Modal(
+                show=delete_confirm,
+                onHide=lambda: set_delete_confirm(False)
+            )(
+                lib.bs.ModalHeader()("Confirm Delete"),
+                lib.bs.ModalBody()(f"Delete {len(selected_rows)} record(s)? This cannot be undone."),
+                lib.bs.ModalFooter()(
+                    lib.bs.Button(variant="secondary",
+                                  onClick=lambda e: set_delete_confirm(False))("Cancel"),
+                    lib.bs.Button(variant="danger",
+                                  disabled=db["is_loading"],
+                                  onClick=lambda e: do_delete())("Delete"),
+                )
+            ),
+
+            # Table
+            lib.html.div(style=lib.Style(border="1px solid #ddd", borderRadius="4px",
+                                          overflow="hidden"))(
+                lib.html.table(style=lib.Style(width="100%", borderCollapse="collapse"))(
+                    lib.html.thead(
+                        style=lib.Style(backgroundColor="#f5f5f5", borderBottom="2px solid #ddd")
+                    )(
+                        lib.html.tr()(
+                            lib.html.th(style=lib.Style(padding="10px", textAlign="center",
+                                                         borderRight="1px solid #ddd"))("☑️"),
+                            lib.html.th(style=lib.Style(padding="10px", textAlign="left",
+                                                         borderRight="1px solid #ddd"))("Village"),
+                            lib.html.th(style=lib.Style(padding="10px", textAlign="left",
+                                                         borderRight="1px solid #ddd"))("Formation"),
+                            lib.html.th(style=lib.Style(padding="10px", textAlign="left",
+                                                         borderRight="1px solid #ddd"))("Analysis (preview)"),
+                            lib.html.th(style=lib.Style(padding="10px", textAlign="left"))("Saved At"),
+                        )
+                    ),
+                    lib.html.tbody()(*rows),
+                )
+            ),
+        )
+
+    # ── Archive detail view ────────────────────────────────────────────────
+    def ArchiveDetail():
+        rec = selected_record
+        if not rec:
+            return lib.html.div()("No record selected.")
+
+        return lib.html.div(style=lib.Style(padding="20px", maxWidth="860px"))(
+            # Toolbar
+            lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="20px",
+                                          alignItems="center"))(
+                lib.bs.Button(
+                    variant="secondary",
+                    onClick=lambda e: (set_archive_view("list"), set_selected_record(None))
+                )("← Back to Archive"),
+                lib.bs.Button(
+                    variant="danger",
+                    onClick=lambda e: set_delete_confirm(True)
+                )("🗑️ Delete This Record"),
+            ),
+
+            # Delete confirmation modal (detail context)
+            lib.bs.Modal(
+                show=delete_confirm,
+                onHide=lambda: set_delete_confirm(False)
+            )(
+                lib.bs.ModalHeader()("Confirm Delete"),
+                lib.bs.ModalBody()("Delete this record? This cannot be undone."),
+                lib.bs.ModalFooter()(
+                    lib.bs.Button(variant="secondary",
+                                  onClick=lambda e: set_delete_confirm(False))("Cancel"),
+                    lib.bs.Button(
+                        variant="danger",
+                        disabled=db["is_loading"],
+                        onClick=lambda e: (
+                            db["delete"](rec.get("created_at")),
+                            set_delete_confirm(False),
+                            set_archive_view("list"),
+                            set_selected_record(None),
+                            set_selected_rows(set()),
+                        )
+                    )("Delete"),
+                )
+            ),
+
+            lib.html.h2("🔬 Analysis Record"),
+
+            # Metadata strip
+            lib.html.div(
+                style=lib.Style(
+                    display="flex", gap="30px", flexWrap="wrap",
+                    backgroundColor="#f8f9fa", padding="14px 18px",
+                    borderRadius="6px", marginBottom="20px",
+                    border="1px solid #dee2e6"
+                )
+            )(
+                lib.html.div()(
+                    lib.html.span(style=lib.Style(fontWeight="bold", color="#555",
+                                                   fontSize="12px", textTransform="uppercase",
+                                                   letterSpacing="0.5px"))("Village"),
+                    lib.html.div(style=lib.Style(fontSize="16px", marginTop="4px"))(
+                        str(rec.get("village", "—"))
+                    ),
+                ),
+                lib.html.div()(
+                    lib.html.span(style=lib.Style(fontWeight="bold", color="#555",
+                                                   fontSize="12px", textTransform="uppercase",
+                                                   letterSpacing="0.5px"))("Formation"),
+                    lib.html.div(style=lib.Style(fontSize="16px", marginTop="4px"))(
+                        str(rec.get("formation", "—"))
+                    ),
+                ),
+                lib.html.div()(
+                    lib.html.span(style=lib.Style(fontWeight="bold", color="#555",
+                                                   fontSize="12px", textTransform="uppercase",
+                                                   letterSpacing="0.5px"))("Saved At"),
+                    lib.html.div(style=lib.Style(fontSize="14px", color="#666", marginTop="4px"))(
+                        str(rec.get("created_at", "—"))
+                    ),
+                ),
+            ),
+
+            # Image + Analysis side by side
+            lib.html.div(
+                style=lib.Style(display="flex", gap="24px", flexWrap="wrap", alignItems="flex-start")
+            )(
+                # Image panel
+                lib.html.div(style=lib.Style(flex="0 0 380px", minWidth="260px"))(
+                    lib.html.h5(style=lib.Style(marginBottom="10px", color="#333"))("📷 Rock Image"),
+                    lib.html.img(
+                        src=rec.get("image", ""),
+                        style=lib.Style(
+                            width="100%", borderRadius="6px",
+                            border="1px solid #ccc", display="block"
+                        )
+                    ) if rec.get("image") else lib.html.div(
+                        style=lib.Style(padding="40px", textAlign="center",
+                                         color="#999", border="1px dashed #ccc",
+                                         borderRadius="6px")
+                    )("No image stored"),
+                ),
+
+                # Analysis panel
+                lib.html.div(
+                    style=lib.Style(
+                        flex="1", minWidth="260px",
+                        backgroundColor="#fff", border="1px solid #dee2e6",
+                        borderRadius="6px", padding="18px"
+                    )
+                )(
+                    lib.html.h5(style=lib.Style(marginBottom="12px", color="#333"))("🤖 Gemini Analysis"),
+                    lib.md.Markdown(rec.get("analysis", "*No analysis text stored.*")),
+                ),
+            ),
+        )
+
+    # ── Page render ────────────────────────────────────────────────────────
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(SHARED_CSS),
             lib.tabs.Tabs(
                 lib.tabs.TabList(
-                    lib.tabs.Tab("perform analysis"),
+                    lib.tabs.Tab("Perform Analysis"),
                     lib.tabs.Tab("Analysis Archive"),
                 ),
+
+                # ── Tab 1: Upload & analyse ────────────────────────────────
                 lib.tabs.TabPanel(
                     lib.html.div(
-                        style={
-                            "padding": "20px", "max-width": "800px",
-                            "margin": "0 auto", "font-family": "Arial, sans-serif"
-                        }
+                        style=lib.Style(
+                            padding="20px", maxWidth="800px",
+                            margin="0 auto", fontFamily="Arial, sans-serif"
+                        )
                     )(
                         lib.html.h1("Rock Identifier with Gemini AI"),
+
+                        # Upload form (shown when no result yet)
                         lib.lo.LoadingOverlay(active=processing, spinner=True)(
                             lib.bs.Form(
-                                onSubmit=event(handle_file_upload, prevent_default=True, stop_propagation=True)
+                                onSubmit=event(handle_file_upload,
+                                               prevent_default=True, stop_propagation=True)
                             )(
                                 lib.html.h3("Upload Image"),
                                 lib.html.input(
@@ -1150,53 +1348,114 @@ def image_analysis(lib):
                                     name="upload", accept="image/*"
                                 ),
                                 lib.html.button(type="submit")("Analyze File"),
-                            ) 
-                        ) if not analysis_results else lib.bs.Form(
-                            lib.bs.Button( onClick=lambda e: set_analysis_results(None) )("← Analyze Another"),
+                            )
+                        ) if not analysis_results else
+
+                        # Results + save form (shown after Gemini responds)
+                        lib.bs.Form(
+                            onSubmit=handle_save_analysis,
+                        )(
+                            lib.bs.Button(
+                                variant="outline-secondary",
+                                style=lib.Style(marginBottom="16px"),
+                                onClick=lambda e: (
+                                    set_analysis_results(None),
+                                    set_image(None)
+                                )
+                            )("← Analyze Another"),
+
                             lib.html.h3("Analysis Result"),
-                            lib.html.img(src=image, style=lib.Style(maxWidth="100%", marginTop="20px")),
+                            lib.html.img(
+                                src=image,
+                                style=lib.Style(maxWidth="100%", marginTop="10px",
+                                                borderRadius="6px", border="1px solid #ccc")
+                            ),
                             lib.html.hr(),
-                            lib.md.Markdown(analysis_results if analysis_results else "No analysis results yet."),
+
+                            # Gemini text displayed read-only
                             lib.html.div(
-                                lib.html.label(
-                                    style=lib.Style(display="block", fontWeight="bold",
-                                                    marginBottom="5px", fontSize="14px"),
-                                    for_='formation',
-                                )("Formation:"),
-                                lib.html.input(
-                                    name='formation',
-                                    type="text",
-                                    className="form-control",
-                                    style=lib.Style(width="100%", padding="8px", marginBottom="10px"),
+                                style=lib.Style(
+                                    backgroundColor="#f8f9fa", border="1px solid #dee2e6",
+                                    borderRadius="6px", padding="16px", marginBottom="20px"
+                                )
+                            )(
+                                lib.html.h5(style=lib.Style(color="#333", marginBottom="8px"))(
+                                    "🤖 Gemini Analysis"
                                 ),
-                            ) if analysis_results else None,
+                                lib.md.Markdown(analysis_results),
+                            ),
+
+                            # Village + Formation inputs side by side
+                            lib.bs.Row(style=lib.Style(marginBottom="16px"))(
+                                lib.bs.Col()(
+                                    lib.html.label(
+                                        style=lib.Style(display="block", fontWeight="bold",
+                                                        marginBottom="5px", fontSize="14px"),
+                                        for_="village"
+                                    )("Village:"),
+                                    lib.html.input(
+                                        name="village",
+                                        type="text",
+                                        className="form-control",
+                                        placeholder="Enter village name",
+                                        style=lib.Style(width="100%", padding="8px"),
+                                    ),
+                                ),
+                                lib.bs.Col()(
+                                    lib.html.label(
+                                        style=lib.Style(display="block", fontWeight="bold",
+                                                        marginBottom="5px", fontSize="14px"),
+                                        for_="formation"
+                                    )("Formation:"),
+                                    lib.html.input(
+                                        name="formation",
+                                        type="text",
+                                        className="form-control",
+                                        placeholder="Enter formation type",
+                                        style=lib.Style(width="100%", padding="8px"),
+                                    ),
+                                ),
+                            ),
+
+                            status_alerts(
+                                lib,
+                                submit_success=db["submit_success"],
+                                success_message=db["success_message"],
+                                error_message=db["error_message"],
+                            ),
+
                             lib.bs.Button(
                                 type="submit",
                                 variant="primary",
                                 size="lg",
-                                disabled=db["is_loading"] ,
+                                disabled=db["is_loading"],
                                 style=lib.Style(
                                     opacity="0.7" if db["is_loading"] else "1",
                                     cursor="not-allowed" if db["is_loading"] else "pointer",
                                     width="220px", padding="12px 24px",
-                                    fontSize="16px", fontWeight="600"
+                                    fontSize="16px", fontWeight="600",
+                                    marginTop="8px"
                                 )
                             )(
-                                lib.html.span(className="spinner")("⟳ ") if db["is_loading"] else (
-                                    "💾 " 
-                                ),
-                                "Saving..." if db["is_loading"] else
-                                "Submitting..." if db["is_loading"] else
-                                "Save Analysis"
-                            ) if analysis_results else None,
-                        ),
+                                lib.html.span(className="spinner")("⟳ ") if db["is_loading"] else "💾 ",
+                                "Saving…" if db["is_loading"] else "Save Analysis"
+                            ),
+                        ),  # closes Form()(...)
                     ),
                 ),
+
+                # ── Tab 2: Archive (list or detail) ───────────────────────
                 lib.tabs.TabPanel(
                     lib.html.div(style=lib.Style(padding="20px"))(
-                        lib.html.h2(f"📊 image analysis — All Submissions"),
-                        SummaryTable()
-                    ) 
+                        lib.html.h2("📊 Analysis Archive"),
+                        status_alerts(
+                            lib,
+                            submit_success=db["submit_success"],
+                            success_message=db["success_message"],
+                            error_message=db["error_message"],
+                        ),
+                        ArchiveList() if archive_view == "list" else ArchiveDetail(),
+                    )
                 ),
             ),
         )
