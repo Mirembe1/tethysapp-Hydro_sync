@@ -177,13 +177,64 @@ def data_from_sqlite(db_fpath, table_name):
 
 
 # ---------------------------------------------------------------------------
+# Chat helpers  — lightweight SQLite-backed chatroom
+# ---------------------------------------------------------------------------
+
+def chat_messages_from_sqlite(db_fpath):
+    """Load the last 100 chat messages, oldest first for display."""
+    if not db_fpath.exists():
+        return []
+    conn = sqlite3.connect(str(db_fpath))
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'"
+        )
+        if not cursor.fetchone():
+            return []
+        df = pd.read_sql_query(
+            "SELECT * FROM chat_messages ORDER BY ts DESC LIMIT 100", conn
+        )
+        # Reverse so oldest is at top, newest at bottom
+        return df.iloc[::-1].to_dict(orient="records")
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def chat_message_to_sqlite(db_fpath, sender, text):
+    """Append a single chat message."""
+    conn = sqlite3.connect(str(db_fpath))
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS chat_messages "
+            "(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, sender TEXT, text TEXT)"
+        )
+        cursor.execute(
+            "INSERT INTO chat_messages (ts, sender, text) VALUES (?, ?, ?)",
+            (datetime.now().isoformat(), sender, text),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def chat_clear_sqlite(db_fpath):
+    """Delete all messages."""
+    if not db_fpath.exists():
+        return
+    conn = sqlite3.connect(str(db_fpath))
+    try:
+        conn.execute("DELETE FROM chat_messages")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Sync helpers  (SQLite  <-->  shared PostgreSQL via psycopg2)
-#
-# Setup (one time):
-#   1. Create a free Postgres DB on Supabase (supabase.com) or Railway (railway.app)
-#   2. Copy the connection string: postgresql://user:password@host:5432/dbname
-#   3. Paste it into Tethys Admin > App Settings > SYNC_DB_URL
-#   4. pip install psycopg2-binary
 # ---------------------------------------------------------------------------
 
 SYNC_TABLES = {
@@ -442,15 +493,12 @@ SHARED_CSS = """
 
 # CSS for the Google-Maps-style home page
 HOME_CSS = """
-    /* ── Layout ── */
     .gm-shell {
         display: flex;
-        height: calc(100vh - 56px);   /* full viewport minus Tethys nav bar */
+        height: calc(100vh - 56px);
         overflow: hidden;
         font-family: 'Segoe UI', Arial, sans-serif;
     }
-
-    /* ── Left sidebar ── */
     .gm-sidebar {
         width: 340px;
         flex-shrink: 0;
@@ -461,29 +509,15 @@ HOME_CSS = """
         overflow: hidden;
         z-index: 10;
     }
-
-    /* Header strip at top of sidebar */
     .gm-sidebar-header {
         background: linear-gradient(135deg, #1a73e8, #0d47a1);
         color: #fff;
         padding: 16px 18px 14px;
         flex-shrink: 0;
     }
-    .gm-sidebar-header h2 {
-        margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.3px;
-    }
-    .gm-sidebar-header p  {
-        margin: 2px 0 0; font-size: 12px; opacity: 0.82;
-    }
-
-    /* Scrollable body of sidebar */
-    .gm-sidebar-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 14px 16px;
-    }
-
-    /* ── Coordinate card ── */
+    .gm-sidebar-header h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+    .gm-sidebar-header p  { margin: 2px 0 0; font-size: 12px; opacity: 0.82; }
+    .gm-sidebar-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
     .coord-card {
         background: linear-gradient(135deg, #1a73e8, #0d47a1);
         color: #fff;
@@ -492,151 +526,347 @@ HOME_CSS = """
         margin-bottom: 14px;
         box-shadow: 0 3px 12px rgba(26,115,232,0.35);
     }
-    .coord-row {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        margin-bottom: 4px;
-    }
+    .coord-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
     .coord-axis {
-        font-size: 11px;
-        font-weight: 700;
-        opacity: 0.7;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        min-width: 28px;
+        font-size: 11px; font-weight: 700; opacity: 0.7;
+        text-transform: uppercase; letter-spacing: 0.8px; min-width: 28px;
     }
     .coord-val {
         font-family: 'Courier New', monospace;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.5px;
+        font-size: 18px; font-weight: 700; letter-spacing: 0.5px;
     }
-    .coord-divider {
-        border: none;
-        border-top: 1px solid rgba(255,255,255,0.2);
-        margin: 10px 0 8px;
-    }
-    .coord-merc {
-        font-family: 'Courier New', monospace;
-        font-size: 11px;
-        opacity: 0.82;
-        line-height: 1.7;
-    }
+    .coord-divider { border: none; border-top: 1px solid rgba(255,255,255,0.2); margin: 10px 0 8px; }
+    .coord-merc { font-family: 'Courier New', monospace; font-size: 11px; opacity: 0.82; line-height: 1.7; }
     .coord-place {
-        font-size: 11px;
-        opacity: 0.88;
-        margin-top: 8px;
-        line-height: 1.5;
-        border-top: 1px solid rgba(255,255,255,0.15);
-        padding-top: 8px;
+        font-size: 11px; opacity: 0.88; margin-top: 8px; line-height: 1.5;
+        border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px;
     }
-
-    /* GPS waiting card */
     .gps-waiting {
-        background: #e8f0fe;
-        border: 2px dashed #90b4fb;
-        border-radius: 12px;
-        padding: 24px 16px;
-        text-align: center;
-        color: #1a56c4;
-        margin-bottom: 14px;
-        font-size: 13px;
+        background: #e8f0fe; border: 2px dashed #90b4fb; border-radius: 12px;
+        padding: 24px 16px; text-align: center; color: #1a56c4; margin-bottom: 14px; font-size: 13px;
     }
-
-    /* Hover tooltip that floats above the map dot */
     .hover-pill {
-        background: rgba(10,10,20,0.88);
-        color: #dce9ff;
-        border-radius: 8px;
-        padding: 9px 14px;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
-        line-height: 1.6;
-        margin-bottom: 12px;
-        border: 1px solid rgba(120,180,255,0.25);
+        background: rgba(10,10,20,0.88); color: #dce9ff; border-radius: 8px;
+        padding: 9px 14px; font-family: 'Courier New', monospace; font-size: 12px;
+        line-height: 1.6; margin-bottom: 12px; border: 1px solid rgba(120,180,255,0.25);
     }
     .hover-pill b { color: #7ec8ff; }
-
-    /* Section headings inside sidebar */
     .sidebar-section-title {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #888;
-        margin: 14px 0 8px;
+        font-size: 10px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 1px; color: #888; margin: 14px 0 8px;
     }
-
-    /* Sync log terminal block */
     .sync-log {
-        background: #0d1117;
-        color: #58a6ff;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
-        padding: 12px 14px;
-        border-radius: 8px;
-        max-height: 180px;
-        overflow-y: auto;
-        margin-top: 10px;
-        line-height: 1.8;
-        border: 1px solid #30363d;
+        background: #0d1117; color: #58a6ff; font-family: 'Courier New', monospace;
+        font-size: 12px; padding: 12px 14px; border-radius: 8px; max-height: 180px;
+        overflow-y: auto; margin-top: 10px; line-height: 1.8; border: 1px solid #30363d;
     }
-
-    /* Info / setup boxes */
     .info-box {
-        background: #f0f7ff;
-        border-left: 4px solid #1a73e8;
-        border-radius: 6px;
-        padding: 10px 14px;
-        font-size: 12px;
-        color: #1a3a5c;
-        line-height: 1.6;
-        margin-bottom: 12px;
+        background: #f0f7ff; border-left: 4px solid #1a73e8; border-radius: 6px;
+        padding: 10px 14px; font-size: 12px; color: #1a3a5c; line-height: 1.6; margin-bottom: 12px;
     }
     .setup-box {
-        background: #fffbea;
-        border-left: 4px solid #f5a623;
-        border-radius: 6px;
-        padding: 10px 14px;
-        font-size: 12px;
-        color: #5c3d00;
-        line-height: 1.8;
-        margin-bottom: 12px;
+        background: #fffbea; border-left: 4px solid #f5a623; border-radius: 6px;
+        padding: 10px 14px; font-size: 12px; color: #5c3d00; line-height: 1.8; margin-bottom: 12px;
     }
     .setup-box code {
-        background: rgba(0,0,0,0.07);
-        border-radius: 3px;
-        padding: 1px 5px;
-        font-family: monospace;
-        font-size: 11px;
+        background: rgba(0,0,0,0.07); border-radius: 3px;
+        padding: 1px 5px; font-family: monospace; font-size: 11px;
+    }
+    .react-tabs__tab-list { border-bottom: 2px solid #e0e7f0 !important; margin: 0 0 12px !important; padding: 0 !important; }
+    .react-tabs__tab { font-size: 12px !important; padding: 6px 12px !important; }
+    .react-tabs__tab--selected { border-color: #1a73e8 !important; color: #1a73e8 !important; }
+    .gm-map-panel { flex: 1; min-width: 0; position: relative; }
+    .gm-map-panel > div, .gm-map-panel > div > div { height: 100% !important; }
+
+    /* GPS save button pulse */
+    @keyframes gps-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(26,115,232,0.5); }
+        70%  { box-shadow: 0 0 0 8px rgba(26,115,232,0); }
+        100% { box-shadow: 0 0 0 0 rgba(26,115,232,0); }
+    }
+    .gps-save-btn {
+        animation: gps-pulse 2s infinite;
+        width: 100%;
+        margin-top: 10px;
+        font-weight: 600;
+        font-size: 13px;
+    }
+    .gps-saved-badge {
+        background: #d4edda; color: #155724; border: 1px solid #c3e6cb;
+        border-radius: 6px; padding: 6px 10px; font-size: 12px;
+        margin-top: 8px; text-align: center;
+        animation: slideDown 0.4s ease-out;
+    }
+"""
+
+# ---------------------------------------------------------------------------
+# Chat page CSS
+# ---------------------------------------------------------------------------
+
+CHAT_CSS = """
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Sora:wght@400;600;700&display=swap');
+
+    :root {
+        --chat-bg: #0f1117;
+        --chat-panel: #1a1d27;
+        --chat-border: #2a2d3a;
+        --chat-accent: #3b82f6;
+        --chat-accent2: #10b981;
+        --chat-text: #e2e8f0;
+        --chat-muted: #64748b;
+        --chat-bubble-me: linear-gradient(135deg, #1d4ed8, #3b82f6);
+        --chat-bubble-other: #1e2130;
+        --chat-input-bg: #1e2130;
+        --chat-header: linear-gradient(135deg, #1a1d27, #0f1117);
     }
 
-    /* Tabs inside sidebar */
-    .react-tabs__tab-list {
-        border-bottom: 2px solid #e0e7f0 !important;
-        margin: 0 0 12px !important;
-        padding: 0 !important;
-    }
-    .react-tabs__tab {
-        font-size: 12px !important;
-        padding: 6px 12px !important;
-    }
-    .react-tabs__tab--selected {
-        border-color: #1a73e8 !important;
-        color: #1a73e8 !important;
+    .chat-root {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 56px);
+        background: var(--chat-bg);
+        font-family: 'Sora', sans-serif;
+        color: var(--chat-text);
+        overflow: hidden;
     }
 
-    /* ── Right map panel ── */
-    .gm-map-panel {
+    /* ── Header ── */
+    .chat-header {
+        background: var(--chat-header);
+        border-bottom: 1px solid var(--chat-border);
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-shrink: 0;
+    }
+    .chat-header-icon {
+        width: 40px; height: 40px;
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px;
+        box-shadow: 0 0 16px rgba(59,130,246,0.4);
+    }
+    .chat-header-title {
+        font-family: 'Sora', sans-serif;
+        font-size: 17px; font-weight: 700;
+        background: linear-gradient(90deg, #60a5fa, #34d399);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .chat-header-sub {
+        font-size: 11px; color: var(--chat-muted); font-family: 'JetBrains Mono', monospace;
+    }
+    .chat-online-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #10b981;
+        box-shadow: 0 0 6px #10b981;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    /* ── Name bar ── */
+    .chat-name-bar {
+        background: #131620;
+        border-bottom: 1px solid var(--chat-border);
+        padding: 10px 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+    .chat-name-input {
+        background: var(--chat-input-bg);
+        border: 1px solid var(--chat-border);
+        border-radius: 8px;
+        color: var(--chat-text);
+        padding: 7px 12px;
+        font-size: 13px;
+        font-family: 'Sora', sans-serif;
+        width: 200px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .chat-name-input:focus { border-color: var(--chat-accent); }
+    .chat-name-label {
+        font-size: 12px; color: var(--chat-muted);
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── Messages area ── */
+    .chat-messages {
         flex: 1;
-        min-width: 0;
-        position: relative;
+        overflow-y: auto;
+        padding: 20px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        scroll-behavior: smooth;
     }
-    .gm-map-panel > div,
-    .gm-map-panel > div > div {
-        height: 100% !important;
+    .chat-messages::-webkit-scrollbar { width: 4px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--chat-border); border-radius: 2px; }
+
+    /* ── Message bubble ── */
+    .chat-msg-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
     }
+    .chat-msg-row.me { flex-direction: row-reverse; }
+
+    .chat-avatar {
+        width: 30px; height: 30px; border-radius: 50%;
+        background: linear-gradient(135deg, #475569, #334155);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 600; flex-shrink: 0;
+        color: #94a3b8;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .chat-msg-row.me .chat-avatar {
+        background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+        color: #fff;
+    }
+
+    .chat-bubble-wrap { display: flex; flex-direction: column; max-width: 68%; }
+    .chat-msg-row.me .chat-bubble-wrap { align-items: flex-end; }
+
+    .chat-sender {
+        font-size: 10px; font-family: 'JetBrains Mono', monospace;
+        color: var(--chat-muted); margin-bottom: 3px; padding: 0 4px;
+    }
+    .chat-msg-row.me .chat-sender { color: #60a5fa; }
+
+    .chat-bubble {
+        background: var(--chat-bubble-other);
+        border: 1px solid var(--chat-border);
+        border-radius: 16px 16px 16px 4px;
+        padding: 10px 14px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--chat-text);
+        word-break: break-word;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .chat-msg-row.me .chat-bubble {
+        background: var(--chat-bubble-me);
+        border-color: transparent;
+        border-radius: 16px 16px 4px 16px;
+        color: #fff;
+        box-shadow: 0 2px 12px rgba(59,130,246,0.3);
+    }
+
+    .chat-ts {
+        font-size: 10px; font-family: 'JetBrains Mono', monospace;
+        color: var(--chat-muted); margin-top: 4px; padding: 0 4px;
+    }
+
+    /* System / GPS coordinate messages */
+    .chat-system-msg {
+        text-align: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--chat-muted);
+        background: rgba(59,130,246,0.05);
+        border: 1px solid rgba(59,130,246,0.12);
+        border-radius: 8px;
+        padding: 6px 12px;
+        margin: 4px auto;
+        max-width: 90%;
+    }
+
+    /* ── Input area ── */
+    .chat-input-bar {
+        background: var(--chat-panel);
+        border-top: 1px solid var(--chat-border);
+        padding: 14px 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+    .chat-text-input {
+        flex: 1;
+        background: var(--chat-input-bg);
+        border: 1px solid var(--chat-border);
+        border-radius: 24px;
+        color: var(--chat-text);
+        padding: 10px 18px;
+        font-size: 14px;
+        font-family: 'Sora', sans-serif;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        resize: none;
+        min-height: 42px;
+        max-height: 120px;
+    }
+    .chat-text-input:focus {
+        border-color: var(--chat-accent);
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+    .chat-text-input::placeholder { color: var(--chat-muted); }
+
+    .chat-send-btn {
+        width: 42px; height: 42px;
+        background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+        border: none; border-radius: 50%;
+        color: white; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(59,130,246,0.4);
+        transition: transform 0.15s, box-shadow 0.15s;
+        flex-shrink: 0;
+    }
+    .chat-send-btn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 4px 16px rgba(59,130,246,0.6);
+    }
+    .chat-send-btn:active { transform: scale(0.96); }
+    .chat-send-btn:disabled {
+        background: #2a2d3a; color: #475569; cursor: not-allowed;
+        box-shadow: none; transform: none;
+    }
+
+    /* GPS coords share button inside chat */
+    .chat-gps-btn {
+        width: 42px; height: 42px;
+        background: linear-gradient(135deg, #065f46, #10b981);
+        border: none; border-radius: 50%;
+        color: white; font-size: 16px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(16,185,129,0.3);
+        transition: transform 0.15s;
+        flex-shrink: 0;
+    }
+    .chat-gps-btn:hover { transform: scale(1.08); }
+    .chat-gps-btn:disabled { background: #2a2d3a; color: #475569; cursor: not-allowed; transform: none; }
+
+    /* Clear button */
+    .chat-clear-btn {
+        background: none; border: 1px solid var(--chat-border);
+        border-radius: 8px; color: var(--chat-muted);
+        font-size: 11px; padding: 4px 10px; cursor: pointer;
+        font-family: 'JetBrains Mono', monospace;
+        transition: color 0.2s, border-color 0.2s;
+    }
+    .chat-clear-btn:hover { color: #ef4444; border-color: #ef4444; }
+
+    /* Empty state */
+    .chat-empty {
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        flex: 1; color: var(--chat-muted); text-align: center;
+        gap: 10px;
+    }
+    .chat-empty-icon { font-size: 48px; opacity: 0.3; }
+    .chat-empty-text { font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+
+    @keyframes msgPop {
+        from { opacity: 0; transform: scale(0.9) translateY(8px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .chat-msg-row { animation: msgPop 0.25s ease-out; }
 """
 
 
@@ -905,13 +1135,10 @@ def make_record_manager(
 
 # ===========================================================================
 #  HOME PAGE  —  Google Maps–style layout
-#    Left sidebar: live coordinates + sync controls
-#    Right panel:  full-height map with auto-updating GPS dot
 # ===========================================================================
 
 @App.page
 def home(lib):
-    # ── Register components ───────────────────────────────────────────────
     lib.register(
         "geolocation.js", "geo",
         host="/static/component_playground/js",
@@ -921,33 +1148,30 @@ def home(lib):
         "react-tabs", "tabs",
         styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"],
     )
-    # Pre-load Toasts so conditional rendering works without a hard refresh
     lib.bs.Toast()
     lib.bs.ToastHeader()
     lib.bs.ToastBody()
 
     resources = lib.hooks.use_resources()
 
-    # SYNC_DB_URL — safe read so a missing setting never crashes the page
     try:
         sync_db_url = lib.hooks.use_setting("SYNC_DB_URL")
     except Exception:
         sync_db_url = None
 
-    # ── State ─────────────────────────────────────────────────────────────
-    # location  = [x, y] in EPSG:3857 metres (filled by geolocation.js)
-    location,     set_location     = lib.hooks.use_state(None)
-    error,        set_error        = lib.hooks.use_state(None)
-    # hover_props = {"x":..., "y":...} when pointer hovers the GPS dot
-    hover_props,  set_hover_props  = lib.hooks.use_state({})
-    # place name from reverse-geocode on first GPS fix
-    place_name,   set_place_name   = lib.hooks.use_state(None)
-    place_loaded, set_place_loaded = lib.hooks.use_state(False)
-    # sync
-    sync_log,     set_sync_log     = lib.hooks.use_state([])
-    sync_running, set_sync_running = lib.hooks.use_state(False)
+    # ── State ──────────────────────────────────────────────────────────────
+    location,      set_location      = lib.hooks.use_state(None)
+    error,         set_error         = lib.hooks.use_state(None)
+    hover_props,   set_hover_props   = lib.hooks.use_state({})
+    place_name,    set_place_name    = lib.hooks.use_state(None)
+    place_loaded,  set_place_loaded  = lib.hooks.use_state(False)
+    sync_log,      set_sync_log      = lib.hooks.use_state([])
+    sync_running,  set_sync_running  = lib.hooks.use_state(False)
+    # GPS save state
+    gps_saving,    set_gps_saving    = lib.hooks.use_state(False)
+    gps_saved_msg, set_gps_saved_msg = lib.hooks.use_state(None)
 
-    # ── Reverse geocode (runs once on first GPS fix) ───────────────────────
+    # ── Reverse geocode ────────────────────────────────────────────────────
     def _reverse_geocode(x, y):
         try:
             lon, lat = _merc_to_wgs84(x, y)
@@ -963,9 +1187,6 @@ def home(lib):
             set_place_name(None)
         set_place_loaded(True)
 
-    # ── Geolocation onChange ───────────────────────────────────────────────
-    # Uses exact pattern from the original working snippet:
-    #   e.target.values_.position  →  [x, y] in EPSG:3857
     def on_geo_change(e):
         pos = e.target.values_.position
         if pos:
@@ -973,43 +1194,58 @@ def home(lib):
             if not place_loaded:
                 _reverse_geocode(pos[0], pos[1])
 
-    # ── GeoJSON for the map dot ────────────────────────────────────────────
-    # Matches original snippet structure exactly.
-    # We add "properties" so the hover handler can read x/y back out.
+    # ── GeoJSON for map dot ────────────────────────────────────────────────
     features = {
         "type": "FeatureCollection",
-        "crs": {
-            "type": "name",
-            "properties": {"name": "EPSG:3857"},
-        },
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": location,   # [x, y] in EPSG:3857
-                },
-                "properties": {
-                    "x": location[0],
-                    "y": location[1],
-                },
-            }
-        ],
-    } if location else []    # empty list = no dot until GPS fires, same as original
+        "crs": {"type": "name", "properties": {"name": "EPSG:3857"}},
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": location},
+            "properties": {"x": location[0], "y": location[1]},
+        }],
+    } if location else []
 
-    # ── Derived display values ─────────────────────────────────────────────
     lon84, lat84 = _merc_to_wgs84(location[0], location[1]) if location else (None, None)
-
     hx = hover_props.get("x")
     hy = hover_props.get("y")
     h_lon, h_lat = _merc_to_wgs84(float(hx), float(hy)) if hx is not None else (None, None)
 
-    # ── Sync handlers ──────────────────────────────────────────────────────
-    def do_push(e):
-        if not sync_db_url:
-            set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
+    # ── Save GPS to Map_Location sheet ────────────────────────────────────
+    def _save_gps_to_sheets():
+        """Write current GPS coordinates into map_location.sqlite."""
+        if not location:
             return
-        set_sync_running(True)
+        set_gps_saving(True)
+        try:
+            lon, lat = _merc_to_wgs84(location[0], location[1])
+            record = {
+                "grid_east":  f"{lon:.6f}",
+                "grid_north": f"{lat:.6f}",
+                "altitude":   "",
+                "village":    place_name or "",
+                "mapped_by":  "GPS Auto-Capture",
+                "date_of_survey": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source_name_2": f"EPSG:3857  X={location[0]:.2f}  Y={location[1]:.2f}",
+            }
+            data_to_sqlite(resources.path / "map_location.sqlite", "Map_Location", [record])
+            set_gps_saved_msg(
+                f"✅ Saved  {lat:+.6f}°, {lon:+.6f}°  →  Map_Location"
+            )
+
+            def _clear_gps_msg():
+                set_gps_saved_msg(None)
+
+            lib.utils.background_execute(_clear_gps_msg, delay_seconds=5)
+        except Exception as ex:
+            set_gps_saved_msg(f"❌ {str(ex)[:80]}")
+        finally:
+            set_gps_saving(False)
+
+    def handle_save_gps(e):
+        lib.utils.background_execute(_save_gps_to_sheets)
+
+    # ── Sync handlers — run in background so UI never freezes ─────────────
+    def _do_push_bg():
         log = [f"⬆  Pushing  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
             for tbl, res in sync_all_push(resources.path, sync_db_url).items():
@@ -1023,11 +1259,7 @@ def home(lib):
         set_sync_log(log)
         set_sync_running(False)
 
-    def do_pull(e):
-        if not sync_db_url:
-            set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
-            return
-        set_sync_running(True)
+    def _do_pull_bg():
         log = [f"⬇  Pulling  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
             for tbl, res in sync_all_pull(resources.path, sync_db_url).items():
@@ -1041,12 +1273,27 @@ def home(lib):
         set_sync_log(log)
         set_sync_running(False)
 
-    # ── Render ────────────────────────────────────────────────────────────
+    def do_push(e):
+        if not sync_db_url:
+            set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
+            return
+        set_sync_running(True)
+        set_sync_log([f"⬆  Push started  —  {datetime.now().strftime('%H:%M:%S')}  ⟳"])
+        lib.utils.background_execute(_do_push_bg)
+
+    def do_pull(e):
+        if not sync_db_url:
+            set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
+            return
+        set_sync_running(True)
+        set_sync_log([f"⬇  Pull started  —  {datetime.now().strftime('%H:%M:%S')}  ⟳"])
+        lib.utils.background_execute(_do_pull_bg)
+
+    # ── Render ─────────────────────────────────────────────────────────────
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(SHARED_CSS + HOME_CSS),
 
-            # Invisible GPS tracker — fires on_geo_change on every position update
             lib.geo.Geolocation(
                 trackingOptions=lib.Props(enableHighAccuracy=True),
                 tracking=True,
@@ -1055,7 +1302,6 @@ def home(lib):
                 onChange=on_geo_change,
             ),
 
-            # GPS error toast — fixed top-right corner
             lib.bs.Toast(
                 style=lib.Style(position="fixed", top="70px", right="16px", zIndex="2000"),
                 className="d-inline-block m-1",
@@ -1067,15 +1313,10 @@ def home(lib):
                 lib.bs.ToastBody("Access was denied or is not available."),
             ) if error else None,
 
-            # ── Google-Maps-style shell: sidebar + map ─────────────────────
             lib.html.div(className="gm-shell")(
 
-                # ══════════════════════════════════════════════════════════
-                # LEFT SIDEBAR
-                # ══════════════════════════════════════════════════════════
+                # ══ LEFT SIDEBAR ══════════════════════════════════════════
                 lib.html.div(className="gm-sidebar")(
-
-                    # Header
                     lib.html.div(className="gm-sidebar-header")(
                         lib.html.div(style=lib.Style(display="flex", alignItems="center", gap="10px"))(
                             lib.html.span(style=lib.Style(fontSize="28px"))("💧"),
@@ -1085,8 +1326,6 @@ def home(lib):
                             ),
                         ),
                     ),
-
-                    # Scrollable body
                     lib.html.div(className="gm-sidebar-body")(
                         lib.tabs.Tabs(
                             lib.tabs.TabList(
@@ -1094,16 +1333,14 @@ def home(lib):
                                 lib.tabs.Tab("🔄 Sync"),
                             ),
 
-                            # ── Tab 1: Live GPS coordinates ────────────────
+                            # ── Tab 1: GPS coordinates + Save button ───────
                             lib.tabs.TabPanel(
                                 lib.html.div(style=lib.Style(paddingTop="10px"))(
 
-                                    # Waiting state
                                     lib.html.div(className="gps-waiting")(
                                         lib.html.div(style=lib.Style(fontSize="32px"))("📡"),
                                         lib.html.strong(
-                                            style=lib.Style(display="block", marginTop="6px",
-                                                            fontSize="13px")
+                                            style=lib.Style(display="block", marginTop="6px", fontSize="13px")
                                         )("Waiting for GPS fix…"),
                                         lib.html.span(
                                             style=lib.Style(fontSize="12px", display="block",
@@ -1111,75 +1348,63 @@ def home(lib):
                                         )("Allow location access when prompted."),
                                     ) if not location else None,
 
-                                    # ── Coordinate card (auto-refreshes with GPS) ──
                                     lib.html.div(className="coord-card")(
-                                        # WGS84 X / Y
                                         lib.html.div(className="coord-row")(
                                             lib.html.span(className="coord-axis")("X"),
-                                            lib.html.span(className="coord-val")(
-                                                f"{lon84:+.6f}°"
-                                            ),
+                                            lib.html.span(className="coord-val")(f"{lon84:+.6f}°"),
                                         ),
                                         lib.html.div(className="coord-row")(
                                             lib.html.span(className="coord-axis")("Y"),
-                                            lib.html.span(className="coord-val")(
-                                                f"{lat84:+.6f}°"
-                                            ),
+                                            lib.html.span(className="coord-val")(f"{lat84:+.6f}°"),
                                         ),
                                         lib.html.div(
                                             style=lib.Style(fontSize="9px", opacity="0.6",
                                                             marginTop="2px", letterSpacing="0.5px")
                                         )("WGS 84 / decimal degrees"),
-
                                         lib.html.hr(className="coord-divider"),
-
-                                        # EPSG:3857 metres
                                         lib.html.div(
                                             style=lib.Style(fontSize="9px", opacity="0.6",
                                                             marginBottom="3px", letterSpacing="0.5px")
                                         )("EPSG:3857 — Web Mercator (metres)"),
-                                        lib.html.div(className="coord-merc")(
-                                            f"X  {location[0]:,.2f}"
-                                        ),
-                                        lib.html.div(className="coord-merc")(
-                                            f"Y  {location[1]:,.2f}"
-                                        ),
-
-                                        # Place name from reverse geocode
+                                        lib.html.div(className="coord-merc")(f"X  {location[0]:,.2f}"),
+                                        lib.html.div(className="coord-merc")(f"Y  {location[1]:,.2f}"),
                                         lib.html.div(className="coord-place")(
-                                            f"📌  {place_name}"
-                                            if place_name
-                                            else "⏳  Resolving place name…"
+                                            f"📌  {place_name}" if place_name else "⏳  Resolving place name…"
                                         ),
                                     ) if location else None,
 
-                                    # ── Hover tooltip ──────────────────────
-                                    # Appears when pointer moves over the GPS dot on the map
+                                    # ── Save GPS to Sheets button ──────────
+                                    lib.bs.Button(
+                                        variant="primary",
+                                        className="gps-save-btn",
+                                        onClick=handle_save_gps,
+                                        disabled=not location or gps_saving,
+                                        style=lib.Style(
+                                            opacity="0.7" if gps_saving else "1",
+                                        ),
+                                    )(
+                                        lib.html.span(className="spinner")("⟳ ") if gps_saving else "📍 ",
+                                        "Saving…" if gps_saving else "Save GPS → Map Location Sheet",
+                                    ) if location else None,
+
+                                    # Saved confirmation badge
+                                    lib.html.div(className="gps-saved-badge")(gps_saved_msg)
+                                    if gps_saved_msg else None,
+
+                                    # Hover tooltip
                                     lib.html.div(className="hover-pill")(
-                                        lib.html.div()(
-                                            lib.html.b()("Hovered point"),
-                                        ),
-                                        lib.html.div()(
-                                            f"X (Lon)  {h_lon:+.6f}°"
-                                        ),
-                                        lib.html.div()(
-                                            f"Y (Lat)   {h_lat:+.6f}°"
-                                        ),
+                                        lib.html.div()(lib.html.b()("Hovered point")),
+                                        lib.html.div()(f"X (Lon)  {h_lon:+.6f}°"),
+                                        lib.html.div()(f"Y (Lat)   {h_lat:+.6f}°"),
                                         lib.html.div(
-                                            style=lib.Style(opacity="0.65", fontSize="11px",
-                                                            marginTop="2px")
-                                        )(
-                                            f"EPSG:3857  X {float(hx):,.1f}   Y {float(hy):,.1f}"
-                                        ),
+                                            style=lib.Style(opacity="0.65", fontSize="11px", marginTop="2px")
+                                        )(f"EPSG:3857  X {float(hx):,.1f}   Y {float(hy):,.1f}"),
                                     ) if h_lon is not None else None,
 
-                                    # Last-updated timestamp
                                     lib.html.div(
                                         style=lib.Style(fontSize="11px", color="#999",
                                                         textAlign="center", marginTop="8px")
-                                    )(
-                                        f"Last fix: {datetime.now().strftime('%H:%M:%S')}"
-                                    ) if location else None,
+                                    )(f"Last fix: {datetime.now().strftime('%H:%M:%S')}") if location else None,
                                 )
                             ),
 
@@ -1196,7 +1421,6 @@ def home(lib):
                                         "Duplicates are skipped automatically.",
                                     ),
 
-                                    # Setup guide — shown only until SYNC_DB_URL is set
                                     lib.html.div(className="setup-box")(
                                         lib.html.strong("⚙ One-time setup"),
                                         lib.html.ol(
@@ -1213,25 +1437,19 @@ def home(lib):
                                         ),
                                     ) if not sync_db_url else None,
 
-                                    # Status badge
                                     lib.html.div(
                                         style=lib.Style(
                                             fontSize="11px", fontWeight="600",
                                             color="#155724" if sync_db_url else "#856404",
                                             background="#d4edda" if sync_db_url else "#fff3cd",
                                             border=f"1px solid {'#c3e6cb' if sync_db_url else '#ffeeba'}",
-                                            borderRadius="20px",
-                                            padding="4px 12px",
-                                            display="inline-block",
-                                            marginBottom="12px",
+                                            borderRadius="20px", padding="4px 12px",
+                                            display="inline-block", marginBottom="12px",
                                         )
                                     )(
-                                        "✅ Cloud DB configured"
-                                        if sync_db_url else
-                                        "⚠ Cloud DB not configured"
+                                        "✅ Cloud DB configured" if sync_db_url else "⚠ Cloud DB not configured"
                                     ),
 
-                                    # Push / Pull buttons
                                     lib.html.div(style=lib.Style(display="flex", gap="8px",
                                                                   flexWrap="wrap", marginBottom="6px"))(
                                         lib.bs.Button(
@@ -1241,7 +1459,7 @@ def home(lib):
                                             style=lib.Style(flex="1", fontWeight="600"),
                                         )(
                                             lib.html.span(className="spinner")("⟳ ")
-                                            if sync_running else "⬆ Push"
+                                            if sync_running else "⬆ Push to Cloud"
                                         ),
                                         lib.bs.Button(
                                             variant="primary", size="sm",
@@ -1250,16 +1468,14 @@ def home(lib):
                                             style=lib.Style(flex="1", fontWeight="600"),
                                         )(
                                             lib.html.span(className="spinner")("⟳ ")
-                                            if sync_running else "⬇ Pull"
+                                            if sync_running else "⬇ Pull from Cloud"
                                         ),
                                     ),
 
-                                    # Sync log terminal
                                     lib.html.div(className="sync-log")(
                                         *[lib.html.div()(line) for line in sync_log]
                                     ) if sync_log else None,
 
-                                    # Tables reference
                                     lib.html.div(className="sidebar-section-title")("Tables synced"),
                                     *[
                                         lib.html.div(
@@ -1281,14 +1497,10 @@ def home(lib):
                     ),
                 ),
 
-                # ══════════════════════════════════════════════════════════
-                # RIGHT PANEL — full-height map with GPS dot
-                # ══════════════════════════════════════════════════════════
+                # ══ RIGHT MAP PANEL ═══════════════════════════════════════
                 lib.html.div(className="gm-map-panel")(
                     lib.tethys.Map(key="map")(
                         lib.ol.layer.Vector(
-                            # fires when pointer enters / leaves the GPS dot feature
-                            # e.feature is the feature dict or None when pointer leaves
                             onPointerFeatureChange=lambda e: set_hover_props(
                                 (e.feature or {}).get("properties", {})
                                 if e.feature else {}
@@ -1296,12 +1508,243 @@ def home(lib):
                         )(
                             lib.ol.source.Vector(
                                 options=lib.Props(
-                                    features=features,   # GeoJSON built above
+                                    features=features,
                                     format="GeoJSON",
                                 )
                             )
                         )
                     )
+                ),
+            ),
+        )
+    )
+
+
+# ===========================================================================
+#  LIVE CHATROOM
+# ===========================================================================
+
+@App.page
+def chatroom(lib):
+    """
+    Field team chatroom — messages stored in SQLite, polled every 4 seconds
+    so all devices on the same Tethys instance see the same conversation.
+    """
+    resources = lib.hooks.use_resources()
+    db_fpath  = resources.path / "chatroom.sqlite"
+
+    # ── State ──────────────────────────────────────────────────────────────
+    messages,     set_messages     = lib.hooks.use_state([])
+    draft,        set_draft        = lib.hooks.use_state("")
+    sender_name,  set_sender_name  = lib.hooks.use_state("Field User")
+    poll_tick,    set_poll_tick    = lib.hooks.use_state(0)
+    confirm_clear, set_confirm_clear = lib.hooks.use_state(False)
+
+    # Attempt to get current GPS from a shared location state (best-effort)
+    # We store it in a separate tiny SQLite so both pages can see it
+    gps_location, set_gps_location = lib.hooks.use_state(None)
+
+    # ── Load GPS from last saved Map_Location record (best-effort) ─────────
+    def _load_last_gps():
+        try:
+            rows = data_from_sqlite(resources.path / "map_location.sqlite", "Map_Location")
+            if rows:
+                latest = rows[0]  # already DESC by created_at
+                e = latest.get("grid_east", "")
+                n = latest.get("grid_north", "")
+                if e and n:
+                    set_gps_location({"lon": e, "lat": n})
+        except Exception:
+            pass
+
+    # ── Poll for new messages every 4 seconds ─────────────────────────────
+    def _poll():
+        msgs = chat_messages_from_sqlite(db_fpath)
+        set_messages(msgs)
+
+    lib.hooks.use_effect(_poll, [poll_tick])
+
+    def _setup_poll():
+        import threading
+
+        def _tick():
+            set_poll_tick(lambda t: t + 1)
+            timer = threading.Timer(4.0, _tick)
+            timer.daemon = True
+            timer.start()
+
+        _load_last_gps()
+        timer = threading.Timer(4.0, _tick)
+        timer.daemon = True
+        timer.start()
+
+    lib.hooks.use_effect(_setup_poll, [])
+
+    # ── Send a message ─────────────────────────────────────────────────────
+    def send_message():
+        text = draft.strip()
+        if not text:
+            return
+        name = sender_name.strip() or "Anonymous"
+        chat_message_to_sqlite(db_fpath, name, text)
+        set_draft("")
+        # Immediately reload
+        set_messages(chat_messages_from_sqlite(db_fpath))
+
+    def handle_key_down(e):
+        # Send on Enter (without Shift)
+        if e.get("key") == "Enter" and not e.get("shiftKey"):
+            send_message()
+
+    def handle_send_click(e):
+        send_message()
+
+    # ── Share GPS coordinates as a message ─────────────────────────────────
+    def share_gps(e):
+        if not gps_location:
+            return
+        text = (
+            f"📍 GPS Fix — Lat: {gps_location['lat']}°  Lon: {gps_location['lon']}°  "
+            f"[ {datetime.now().strftime('%H:%M:%S')} ]"
+        )
+        name = sender_name.strip() or "Anonymous"
+        chat_message_to_sqlite(db_fpath, name, text)
+        set_messages(chat_messages_from_sqlite(db_fpath))
+
+    # ── Clear all messages ─────────────────────────────────────────────────
+    def do_clear(e):
+        chat_clear_sqlite(db_fpath)
+        set_messages([])
+        set_confirm_clear(False)
+
+    # ── Render helpers ─────────────────────────────────────────────────────
+    def _avatar_initial(name):
+        return (name or "?")[0].upper()
+
+    def _fmt_ts(ts_str):
+        try:
+            return datetime.fromisoformat(ts_str).strftime("%H:%M")
+        except Exception:
+            return ""
+
+    def _is_gps_msg(text):
+        return text.startswith("📍 GPS Fix")
+
+    def MessageRow(msg):
+        is_me  = (msg.get("sender", "") == (sender_name.strip() or "Anonymous"))
+        text   = str(msg.get("text", ""))
+        sender = str(msg.get("sender", "?"))
+        ts     = _fmt_ts(str(msg.get("ts", "")))
+
+        if _is_gps_msg(text):
+            return lib.html.div(className="chat-system-msg")(text)
+
+        row_cls = "chat-msg-row me" if is_me else "chat-msg-row"
+
+        return lib.html.div(className=row_cls)(
+            lib.html.div(className="chat-avatar")(_avatar_initial(sender)),
+            lib.html.div(className="chat-bubble-wrap")(
+                lib.html.div(className="chat-sender")(sender),
+                lib.html.div(className="chat-bubble")(text),
+                lib.html.div(className="chat-ts")(ts),
+            ),
+        )
+
+    # ── Page ───────────────────────────────────────────────────────────────
+    return lib.tethys.Display(
+        lib.html.div()(
+            lib.html.style()(CHAT_CSS),
+
+            lib.html.div(className="chat-root")(
+
+                # Header
+                lib.html.div(className="chat-header")(
+                    lib.html.div(className="chat-header-icon")("💬"),
+                    lib.html.div()(
+                        lib.html.div(className="chat-header-title")("Field Chatroom"),
+                        lib.html.div(className="chat-header-sub")(
+                            f"HydroSync · {len(messages)} message(s)"
+                        ),
+                    ),
+                    lib.html.div(className="chat-online-dot"),
+                    # Clear button (top right)
+                    lib.html.button(
+                        className="chat-clear-btn",
+                        onClick=lambda e: set_confirm_clear(True),
+                        style=lib.Style(marginLeft="12px"),
+                    )("clear"),
+                ),
+
+                # Confirm-clear modal
+                lib.bs.Modal(show=confirm_clear,
+                              onHide=lambda: set_confirm_clear(False))(
+                    lib.bs.ModalHeader()("Clear Chat?"),
+                    lib.bs.ModalBody()("This will delete all messages permanently."),
+                    lib.bs.ModalFooter()(
+                        lib.bs.Button(variant="secondary",
+                                      onClick=lambda e: set_confirm_clear(False))("Cancel"),
+                        lib.bs.Button(variant="danger", onClick=do_clear)("Clear All"),
+                    ),
+                ),
+
+                # Name bar
+                lib.html.div(className="chat-name-bar")(
+                    lib.html.span(className="chat-name-label")("Sending as:"),
+                    lib.html.input(
+                        className="chat-name-input",
+                        type="text",
+                        value=sender_name,
+                        placeholder="Your name",
+                        onChange=lambda e: set_sender_name(e.target.value),
+                    ),
+                    lib.html.span(
+                        style=lib.Style(
+                            fontSize="11px",
+                            fontFamily="'JetBrains Mono', monospace",
+                            color="#10b981",
+                            marginLeft="auto",
+                        )
+                    )(
+                        f"GPS: {gps_location['lat']}°, {gps_location['lon']}°"
+                        if gps_location else "GPS: not loaded"
+                    ),
+                ),
+
+                # Messages
+                lib.html.div(className="chat-messages", id="chat-scroll")(
+                    *[MessageRow(m) for m in messages]
+                ) if messages else lib.html.div(className="chat-messages")(
+                    lib.html.div(className="chat-empty")(
+                        lib.html.div(className="chat-empty-icon")("💬"),
+                        lib.html.div(className="chat-empty-text")("No messages yet. Say hello!"),
+                    )
+                ),
+
+                # Input bar
+                lib.html.div(className="chat-input-bar")(
+                    # Share GPS button
+                    lib.html.button(
+                        className="chat-gps-btn",
+                        onClick=share_gps,
+                        disabled=not gps_location,
+                        title="Share last saved GPS coordinates",
+                    )("📍"),
+
+                    lib.html.textarea(
+                        className="chat-text-input",
+                        value=draft,
+                        placeholder="Type a message…  (Enter to send)",
+                        onChange=lambda e: set_draft(e.target.value),
+                        onKeyDown=handle_key_down,
+                        rows="1",
+                    ),
+
+                    lib.html.button(
+                        className="chat-send-btn",
+                        onClick=handle_send_click,
+                        disabled=not draft.strip(),
+                        title="Send",
+                    )("➤"),
                 ),
             ),
         )
@@ -1330,7 +1773,7 @@ def map_location(lib):
     form_fields = [
         [("village", "Village"), ("ves_no", "VES No."), ("map_sheet_no", "Map Sheet No."), ("mapped_by", "Mapped By")],
         [("parish", "Parish"), ("subcounty", "Sub-County"), ("county", "County"), ("district", "District")],
-        [("grid_east", "Grid East"), ("grid_north", "Grid North"), ("altitude", "Altitude")],
+        [("grid_east", "Grid East (°Lon)"), ("grid_north", "Grid North (°Lat)"), ("altitude", "Altitude")],
         [("village_code", "Village Code"), ("date_of_survey", "Date of Survey"), ("source_name_2", "Source Name")],
         [("proposed_type_of_water_source", "Proposed Type of Water Source")],
         [("expected_depth_to_rock_m", "Expected Depth to Rock (m)"), ("expected_depth_to_water_m", "Expected Depth to Water (m)")],
@@ -1338,7 +1781,8 @@ def map_location(lib):
         [("expected_borehole_depth_m", "Expected Borehole Depth (m)"), ("accessibility_to_site", "Accessibility to Site")],
         [("expected_depth_to_screen_m", "Expected Depth to Screen (m)")],
     ]
-    summary_cols = [("village", "Village"), ("mapped_by", "Mapped By")]
+    summary_cols = [("village", "Village"), ("mapped_by", "Mapped By"),
+                    ("grid_east", "Grid East"), ("grid_north", "Grid North")]
 
     def sketch_content(lib, existing_id, form_edit_mode):
         selected_record_data = None
@@ -1662,10 +2106,9 @@ def image_analysis(lib):
     lib.md.Markdown()
     lib.bs.Alert()
 
-    # ── State ──────────────────────────────────────────────────────────────
     processing,       set_processing       = lib.hooks.use_state(False)
-    analysis_results, set_analysis_results = lib.hooks.use_state(None)  # Gemini AI text
-    image,            set_image            = lib.hooks.use_state(None)   # data-URL
+    analysis_results, set_analysis_results = lib.hooks.use_state(None)
+    image,            set_image            = lib.hooks.use_state(None)
 
     archive_view,    set_archive_view    = lib.hooks.use_state("list")
     selected_record, set_selected_record = lib.hooks.use_state(None)
@@ -1679,7 +2122,6 @@ def image_analysis(lib):
     table_name = "Image_Analysis"
     db = use_db_state(lib, db_fpath, table_name)
 
-    # ── Upload & analyse ───────────────────────────────────────────────────
     async def handle_file_upload(e):
         set_processing(True)
         image_data = e["formData"].get("upload")
@@ -1694,20 +2136,17 @@ def image_analysis(lib):
         )
         set_processing(False)
 
-    # ── Save: village + formation from form; image + AI text from state ────
     def handle_save_analysis(e):
         form_data = dict(e["formData"])
         db["save"]([{
             "village":   form_data.get("village",   ""),
             "formation": form_data.get("formation", ""),
-            "image":     image,             # data-URL already in state
-            "analysis":  analysis_results,  # Gemini AI text already in state
+            "image":     image,
+            "analysis":  analysis_results,
         }])
-        # Reset so user can immediately analyse another rock
         set_analysis_results(None)
         set_image(None)
 
-    # ── Archive helpers ────────────────────────────────────────────────────
     def toggle_row(rid):
         new_sel = set(selected_rows)
         if rid in new_sel:
@@ -1732,7 +2171,6 @@ def image_analysis(lib):
         set_selected_rows(set())
         set_delete_confirm(False)
 
-    # ── Archive list ───────────────────────────────────────────────────────
     def ArchiveList():
         data = db["displayed_data"]
         if not data:
@@ -1819,7 +2257,6 @@ def image_analysis(lib):
             ),
         )
 
-    # ── Archive detail ─────────────────────────────────────────────────────
     def ArchiveDetail():
         rec = selected_record
         if not rec:
@@ -1849,9 +2286,8 @@ def image_analysis(lib):
                                       set_selected_rows(set()),
                                   ))("Delete"),
                 ),
-            ),
+            ) if delete_confirm else None,
             lib.html.h2("🔬 Analysis Record"),
-            # Metadata strip
             lib.html.div(
                 style=lib.Style(display="flex", gap="30px", flexWrap="wrap",
                                 backgroundColor="#f8f9fa", padding="14px 18px",
@@ -1871,7 +2307,6 @@ def image_analysis(lib):
                                        ("created_at", "Saved At")]
                 ]
             ),
-            # Image + Analysis side by side
             lib.html.div(style=lib.Style(display="flex", gap="24px", flexWrap="wrap",
                                          alignItems="flex-start"))(
                 lib.html.div(style=lib.Style(flex="0 0 380px", minWidth="260px"))(
@@ -1897,7 +2332,6 @@ def image_analysis(lib):
             ),
         )
 
-    # ── Page render ────────────────────────────────────────────────────────
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(SHARED_CSS),
@@ -1907,7 +2341,6 @@ def image_analysis(lib):
                     lib.tabs.Tab("Analysis Archive"),
                 ),
 
-                # Tab 1: Upload & analyse
                 lib.tabs.TabPanel(
                     lib.html.div(style=lib.Style(padding="20px", maxWidth="800px",
                                                  margin="0 auto", fontFamily="Arial, sans-serif"))(
@@ -1940,7 +2373,6 @@ def image_analysis(lib):
                             ),
                             lib.html.hr(),
 
-                            # AI analysis — read-only display
                             lib.html.div(
                                 style=lib.Style(backgroundColor="#f8f9fa",
                                                 border="1px solid #dee2e6",
@@ -1953,7 +2385,6 @@ def image_analysis(lib):
                                 lib.md.Markdown(analysis_results),
                             ),
 
-                            # Village + Formation side by side
                             lib.bs.Row(style=lib.Style(marginBottom="16px"))(
                                 lib.bs.Col()(
                                     lib.html.label(
@@ -2003,7 +2434,6 @@ def image_analysis(lib):
                     ),
                 ),
 
-                # Tab 2: Archive
                 lib.tabs.TabPanel(
                     lib.html.div(style=lib.Style(padding="20px"))(
                         lib.html.h2("📊 Analysis Archive"),
