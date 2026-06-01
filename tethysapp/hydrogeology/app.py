@@ -1,3 +1,4 @@
+import asyncio
 import re
 import math
 from tethys_sdk.components import ComponentBase
@@ -203,7 +204,7 @@ def chat_messages_from_sqlite(db_fpath):
         conn.close()
 
 
-def chat_message_to_sqlite(db_fpath, sender, text):
+def chat_message_to_sqlite(db_fpath, sender, text, ts=None):
     """Append a single chat message."""
     conn = sqlite3.connect(str(db_fpath))
     cursor = conn.cursor()
@@ -214,7 +215,7 @@ def chat_message_to_sqlite(db_fpath, sender, text):
         )
         cursor.execute(
             "INSERT INTO chat_messages (ts, sender, text) VALUES (?, ?, ?)",
-            (datetime.now().isoformat(), sender, text),
+            (ts or datetime.now().isoformat(), sender, text),
         )
         conn.commit()
     finally:
@@ -702,6 +703,11 @@ CHAT_CSS = """
         flex-direction: column;
         gap: 12px;
         scroll-behavior: smooth;
+        scroll-snap-type: y mandatory;
+    }
+    .chat-messages > :last-child { 
+        scroll-snap-align: start;
+        scroll-initial-target: nearest;
     }
     .chat-messages::-webkit-scrollbar { width: 4px; }
     .chat-messages::-webkit-scrollbar-track { background: transparent; }
@@ -1141,7 +1147,7 @@ def make_record_manager(
 def home(lib):
     lib.register(
         "geolocation.js", "geo",
-        host="/static/component_playground/js",
+        host="/static/hydrogeology/js",
         default_export="Geolocation",
     )
     lib.register(
@@ -1530,19 +1536,25 @@ def chatroom(lib):
     Field team chatroom — messages stored in SQLite, polled every 4 seconds
     so all devices on the same Tethys instance see the same conversation.
     """
+    lib.register("textarea.js", "ta", host="/static/hydrogeology/js", default_export="TextArea")
     resources = lib.hooks.use_resources()
     db_fpath  = resources.path / "chatroom.sqlite"
 
     # ── State ──────────────────────────────────────────────────────────────
     messages,     set_messages     = lib.hooks.use_state([])
     draft,        set_draft        = lib.hooks.use_state("")
-    sender_name,  set_sender_name  = lib.hooks.use_state("Field User")
-    poll_tick,    set_poll_tick    = lib.hooks.use_state(0)
     confirm_clear, set_confirm_clear = lib.hooks.use_state(False)
+    user = lib.hooks.use_user()
+    sender_name = user.username
 
     # Attempt to get current GPS from a shared location state (best-effort)
     # We store it in a separate tiny SQLite so both pages can see it
     gps_location, set_gps_location = lib.hooks.use_state(None)
+
+    async def receive_message(message):
+        set_messages(chat_messages_from_sqlite(db_fpath))
+
+    sender = lib.hooks.use_channel_layer(group_name="hydro_sync_chat", receiver=receive_message)
 
     # ── Load GPS from last saved Map_Location record (best-effort) ─────────
     def _load_last_gps():
@@ -1556,48 +1568,31 @@ def chatroom(lib):
                     set_gps_location({"lon": e, "lat": n})
         except Exception:
             pass
-
-    # ── Poll for new messages every 4 seconds ─────────────────────────────
-    def _poll():
+    
+    def _initialize_messages():
         msgs = chat_messages_from_sqlite(db_fpath)
         set_messages(msgs)
 
-    lib.hooks.use_effect(_poll, [poll_tick])
-
-    def _setup_poll():
-        import threading
-
-        def _tick():
-            set_poll_tick(lambda t: t + 1)
-            timer = threading.Timer(4.0, _tick)
-            timer.daemon = True
-            timer.start()
-
-        _load_last_gps()
-        timer = threading.Timer(4.0, _tick)
-        timer.daemon = True
-        timer.start()
-
-    lib.hooks.use_effect(_setup_poll, [])
+    lib.hooks.use_effect(_load_last_gps, [])
+    lib.hooks.use_effect(_initialize_messages, [])
 
     # ── Send a message ─────────────────────────────────────────────────────
-    def send_message():
-        text = draft.strip()
+    def send_message(text=None):
+        if not text:
+            text = draft.strip()
         if not text:
             return
-        name = sender_name.strip() or "Anonymous"
-        chat_message_to_sqlite(db_fpath, name, text)
-        set_draft("")
-        # Immediately reload
-        set_messages(chat_messages_from_sqlite(db_fpath))
-
-    def handle_key_down(e):
-        # Send on Enter (without Shift)
-        if e.get("key") == "Enter" and not e.get("shiftKey"):
-            send_message()
-
-    def handle_send_click(e):
-        send_message()
+        ts = datetime.now().isoformat()
+        asyncio.create_task(
+            sender(
+                lib.Props(
+                    ts=ts,
+                    text=text,
+                    user=sender_name,
+                )
+            )
+        )
+        chat_message_to_sqlite(db_fpath, sender_name, text, ts)
 
     # ── Share GPS coordinates as a message ─────────────────────────────────
     def share_gps(e):
@@ -1607,9 +1602,7 @@ def chatroom(lib):
             f"📍 GPS Fix — Lat: {gps_location['lat']}°  Lon: {gps_location['lon']}°  "
             f"[ {datetime.now().strftime('%H:%M:%S')} ]"
         )
-        name = sender_name.strip() or "Anonymous"
-        chat_message_to_sqlite(db_fpath, name, text)
-        set_messages(chat_messages_from_sqlite(db_fpath))
+        send_message(text)
 
     # ── Clear all messages ─────────────────────────────────────────────────
     def do_clear(e):
@@ -1631,7 +1624,7 @@ def chatroom(lib):
         return text.startswith("📍 GPS Fix")
 
     def MessageRow(msg):
-        is_me  = (msg.get("sender", "") == (sender_name.strip() or "Anonymous"))
+        is_me  = msg.get("sender", "") == sender_name.strip()
         text   = str(msg.get("text", ""))
         sender = str(msg.get("sender", "?"))
         ts     = _fmt_ts(str(msg.get("ts", "")))
@@ -1690,13 +1683,7 @@ def chatroom(lib):
                 # Name bar
                 lib.html.div(className="chat-name-bar")(
                     lib.html.span(className="chat-name-label")("Sending as:"),
-                    lib.html.input(
-                        className="chat-name-input",
-                        type="text",
-                        value=sender_name,
-                        placeholder="Your name",
-                        onChange=lambda e: set_sender_name(e.target.value),
-                    ),
+                    lib.m.Badge(color="blue")(sender_name),
                     lib.html.span(
                         style=lib.Style(
                             fontSize="11px",
@@ -1730,18 +1717,17 @@ def chatroom(lib):
                         title="Share last saved GPS coordinates",
                     )("📍"),
 
-                    lib.html.textarea(
+                    lib.ta.TextArea(
                         className="chat-text-input",
-                        value=draft,
                         placeholder="Type a message…  (Enter to send)",
-                        onChange=lambda e: set_draft(e.target.value),
-                        onKeyDown=handle_key_down,
+                        onInput=lambda e: set_draft(e.target.value),
+                        onEnterKey=lambda _: (send_message(), set_draft("")),
                         rows="1",
                     ),
 
                     lib.html.button(
                         className="chat-send-btn",
-                        onClick=handle_send_click,
+                        onClick=lambda _: (send_message(), set_draft("")),
                         disabled=not draft.strip(),
                         title="Send",
                     )("➤"),
@@ -1758,7 +1744,7 @@ def chatroom(lib):
 @App.page
 def map_location(lib):
     lib.register("sketch_canvas.js", "sc",
-                 host="/static/component_playground/js", default_export="SketchCanvas")
+                 host="/static/hydrogeology/js", default_export="SketchCanvas")
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
