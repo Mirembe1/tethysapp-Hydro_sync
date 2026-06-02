@@ -14,3 +14,4 @@ requirements:
 
   pip:
     - reactpy-django
+    - pandas

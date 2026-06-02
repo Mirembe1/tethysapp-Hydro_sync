@@ -1,9 +1,10 @@
 function debounce(func, timeout=250, setValue) {
     let timer;
     return (...args) => {
-        setValue(args[0].target.value);
+        let newVal = args[0].target.value;
+        setValue(newVal);
         clearTimeout(timer);
-        timer = setTimeout(() => { func.apply(this, args); }, timeout);
+        timer = setTimeout(() => { func.apply(this, [newVal]); }, timeout);
     }
 }
 

@@ -1720,7 +1720,7 @@ def chatroom(lib):
                     lib.ta.TextArea(
                         className="chat-text-input",
                         placeholder="Type a message…  (Enter to send)",
-                        onInput=lambda e: set_draft(e.target.value),
+                        onInput=lambda e: set_draft(e),
                         onEnterKey=lambda _: (send_message(), set_draft("")),
                         rows="1",
                     ),
