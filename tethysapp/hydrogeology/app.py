@@ -601,6 +601,46 @@ HOME_CSS = """
 """
 
 # ---------------------------------------------------------------------------
+# GPS banner CSS — shared across all data-entry pages
+# ---------------------------------------------------------------------------
+
+GPS_BANNER_CSS = """
+    .gps-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: linear-gradient(90deg, #e8f5e9, #f1f8e9);
+        border: 1px solid #a5d6a7;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 12px;
+        color: #2e7d32;
+        margin-bottom: 14px;
+        font-family: 'Courier New', monospace;
+    }
+    .gps-banner.waiting {
+        background: #fff8e1;
+        border-color: #ffe082;
+        color: #795548;
+    }
+    .gps-banner.saved {
+        background: #e3f2fd;
+        border-color: #90caf9;
+        color: #1565c0;
+    }
+    .gps-banner-icon { font-size: 16px; flex-shrink: 0; }
+    .gps-banner-text { flex: 1; line-height: 1.5; }
+    .gps-banner-badge {
+        background: #2e7d32; color: #fff;
+        border-radius: 12px; padding: 2px 8px;
+        font-size: 10px; font-weight: 700;
+        letter-spacing: 0.5px; flex-shrink: 0;
+    }
+    .gps-banner.waiting .gps-banner-badge { background: #f57f17; }
+    .gps-banner.saved   .gps-banner-badge { background: #1565c0; }
+"""
+
+# ---------------------------------------------------------------------------
 # Chat page CSS
 # ---------------------------------------------------------------------------
 
@@ -906,6 +946,150 @@ def status_alerts(lib, submit_success, success_message, error_message, extra_det
 
 
 # ---------------------------------------------------------------------------
+# GPS banner component — shows live fix status at the top of each form page
+# ---------------------------------------------------------------------------
+
+@component
+def gps_status_banner(lib, gps_location, gps_saved_msg):
+    """
+    Renders a coloured status strip at the top of a data-entry page.
+
+    States
+    ------
+    - waiting  : no fix yet
+    - saved    : auto-save just completed (gps_saved_msg is set)
+    - ready    : fix acquired, coordinates shown
+    """
+    if gps_saved_msg:
+        return lib.html.div(className="gps-banner saved")(
+            lib.html.span(className="gps-banner-icon")("✅"),
+            lib.html.span(className="gps-banner-text")(gps_saved_msg),
+            lib.html.span(className="gps-banner-badge")("SAVED"),
+        )
+    if not gps_location:
+        return lib.html.div(className="gps-banner waiting")(
+            lib.html.span(className="gps-banner-icon")("📡"),
+            lib.html.span(className="gps-banner-text")(
+                "Waiting for GPS fix…  Allow location access when prompted."
+            ),
+            lib.html.span(className="gps-banner-badge")("PENDING"),
+        )
+    return lib.html.div(className="gps-banner")(
+        lib.html.span(className="gps-banner-icon")("📍"),
+        lib.html.span(className="gps-banner-text")(
+            f"GPS  Lat {gps_location['lat']}°   Lon {gps_location['lon']}°   "
+            f"[ {gps_location.get('ts', '')} ]"
+        ),
+        lib.html.span(className="gps-banner-badge")("LIVE"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reusable GPS hook for data-entry pages
+#
+# Usage inside any @App.page function:
+#
+#   gps = use_page_gps(lib, resources, db_fpath, table_name, extra_fields)
+#   # then render:  gps_status_banner(lib, gps["location"], gps["saved_msg"])
+#   # and mount:    gps["Geolocation"]()
+# ---------------------------------------------------------------------------
+
+def use_page_gps(lib, resources, db_fpath, table_name, extra_fields=None):
+    """
+    Registers the Geolocation component and wires up automatic GPS saving
+    for a data-entry page.
+
+    Parameters
+    ----------
+    extra_fields : dict, optional
+        Additional key/value pairs to merge into the saved record
+        (e.g. {"project": "VES-001"}).
+
+    Returns
+    -------
+    dict with keys:
+        location    – raw [x, y] in EPSG:3857, or None
+        saved_msg   – confirmation / error string, or None
+        Geolocation – zero-argument callable that renders the hidden component
+    """
+    location,      set_location      = lib.hooks.use_state(None)
+    gps_saved,     set_gps_saved     = lib.hooks.use_state(False)   # True once saved this session
+    saved_msg,     set_saved_msg     = lib.hooks.use_state(None)
+    gps_error,     set_gps_error     = lib.hooks.use_state(None)
+
+    # Register Geolocation once
+    lib.register(
+        "geolocation.js", "geo",
+        host="/static/hydrogeology/js",
+        default_export="Geolocation",
+    )
+
+    def _do_save(pos):
+        """Background worker: write GPS fix into SQLite."""
+        try:
+            lon, lat = _merc_to_wgs84(pos[0], pos[1])
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            record = {
+                "gps_lon":         f"{lon:.6f}",
+                "gps_lat":         f"{lat:.6f}",
+                "gps_x_mercator":  f"{pos[0]:.2f}",
+                "gps_y_mercator":  f"{pos[1]:.2f}",
+                "gps_captured_at": ts,
+                **(extra_fields or {}),
+            }
+            # Map_Location has its own richer schema — reuse existing columns
+            if table_name == "Map_Location":
+                record = {
+                    "grid_east":         f"{lon:.6f}",
+                    "grid_north":        f"{lat:.6f}",
+                    "altitude":          "",
+                    "mapped_by":         "GPS Auto-Capture",
+                    "date_of_survey":    ts,
+                    "source_name_2":     f"EPSG:3857  X={pos[0]:.2f}  Y={pos[1]:.2f}",
+                    **(extra_fields or {}),
+                }
+            data_to_sqlite(db_fpath, table_name, [record])
+            set_saved_msg(
+                f"📍 Auto-saved  Lat {lat:+.6f}°  Lon {lon:+.6f}°  →  {table_name}"
+            )
+
+            def _clear():
+                set_saved_msg(None)
+
+            lib.utils.background_execute(_clear, delay_seconds=6)
+        except Exception as ex:
+            set_saved_msg(f"❌ GPS save failed: {str(ex)[:80]}")
+
+    def on_geo_change(e):
+        pos = e.target.values_.position
+        if pos and not gps_saved:
+            set_location(pos)
+            set_gps_saved(True)
+            lib.utils.background_execute(_do_save, args=[pos])
+
+    def Geolocation():
+        return lib.geo.Geolocation(
+            trackingOptions=lib.Props(enableHighAccuracy=True),
+            tracking=True,
+            projection="EPSG:3857",
+            onError=lambda e: set_gps_error(str(e)),
+            onChange=on_geo_change,
+        )
+
+    lon84, lat84 = _merc_to_wgs84(location[0], location[1]) if location else (None, None)
+    gps_loc = (
+        {"lon": f"{lon84:.6f}", "lat": f"{lat84:.6f}", "ts": datetime.now().strftime("%H:%M:%S")}
+        if location else None
+    )
+
+    return {
+        "location":    gps_loc,
+        "saved_msg":   saved_msg,
+        "Geolocation": Geolocation,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Generalised SummaryTable + FormView
 # ---------------------------------------------------------------------------
 
@@ -1116,9 +1300,14 @@ def make_record_manager(
             ),
         )
 
-    def TabView():
+    def TabView(gps_banner=None):
+        """
+        gps_banner : optional renderable element to display above the tabs
+                     (pass the result of gps_status_banner(...) here).
+        """
         return lib.html.div()(
-            lib.html.style()(SHARED_CSS),
+            lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
+            gps_banner if gps_banner is not None else None,
             lib.tabs.Tabs(
                 lib.tabs.TabList(lib.tabs.Tab("Add Data"), lib.tabs.Tab("View Data")),
                 lib.tabs.TabPanel(FormView()),
@@ -1753,6 +1942,9 @@ def map_location(lib):
     table_name = "Map_Location"
     db = use_db_state(lib, db_fpath, table_name)
 
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, resources, db_fpath, table_name)
+
     color, set_color = lib.hooks.use_state("#100a0a")
     width, set_width = lib.hooks.use_state(4)
 
@@ -1815,7 +2007,14 @@ def map_location(lib):
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="Map Location Survey Form", extra_form_content=sketch_content,
     )
-    return TabView()
+
+    # Render: hidden Geolocation component + GPS banner + tabs
+    return lib.html.div()(
+        gps["Geolocation"](),
+        TabView(
+            gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
+        ),
+    )
 
 
 # ===========================================================================
@@ -1831,6 +2030,9 @@ def VES_FORM(lib):
     db_fpath   = resources.path / "ves_survey_data.sqlite"
     table_name = "VES_FORM"
     db = use_db_state(lib, db_fpath, table_name)
+
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, resources, db_fpath, table_name)
 
     row_data_1, set_row_data_1 = lib.hooks.use_state(
         [{"station": x, "reading": "", "apparent_resistivity": "", "remarks": ""}
@@ -1877,7 +2079,13 @@ def VES_FORM(lib):
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="VES FORM — Vertical Electrical Sounding", extra_form_content=ves_extra,
     )
-    return TabView()
+
+    return lib.html.div()(
+        gps["Geolocation"](),
+        TabView(
+            gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
+        ),
+    )
 
 
 # ===========================================================================
@@ -1893,6 +2101,9 @@ def resistivity_survey_form(lib):
     db_fpath   = resources.path / "resistivity_survey.sqlite"
     table_name = "resistivity_survey"
     db = use_db_state(lib, db_fpath, table_name)
+
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, resources, db_fpath, table_name)
 
     log_spacings = [
         1, 2.1, 3.0, 4.4, 6.3, 9.1, 13.2, 13.2, 19.0, 19.0,
@@ -2028,7 +2239,13 @@ def resistivity_survey_form(lib):
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="Schlumberger Array VES Survey", extra_form_content=resistivity_extra,
     )
-    return TabView()
+
+    return lib.html.div()(
+        gps["Geolocation"](),
+        TabView(
+            gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
+        ),
+    )
 
 
 # ===========================================================================
@@ -2092,6 +2309,13 @@ def image_analysis(lib):
     lib.md.Markdown()
     lib.bs.Alert()
 
+    resources  = lib.hooks.use_resources()
+    db_fpath   = resources.path / "image_analysis.sqlite"
+    table_name = "Image_Analysis"
+
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, resources, db_fpath, table_name)
+
     processing,       set_processing       = lib.hooks.use_state(False)
     analysis_results, set_analysis_results = lib.hooks.use_state(None)
     image,            set_image            = lib.hooks.use_state(None)
@@ -2103,9 +2327,6 @@ def image_analysis(lib):
 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
 
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "image_analysis.sqlite"
-    table_name = "Image_Analysis"
     db = use_db_state(lib, db_fpath, table_name)
 
     async def handle_file_upload(e):
@@ -2129,6 +2350,9 @@ def image_analysis(lib):
             "formation": form_data.get("formation", ""),
             "image":     image,
             "analysis":  analysis_results,
+            # Attach GPS fix to saved analysis record if available
+            "gps_lat":   gps["location"]["lat"] if gps["location"] else "",
+            "gps_lon":   gps["location"]["lon"] if gps["location"] else "",
         }])
         set_analysis_results(None)
         set_image(None)
@@ -2289,8 +2513,11 @@ def image_analysis(lib):
                             str(rec.get(key, "—"))
                         ),
                     )
-                    for key, label in [("village", "Village"), ("formation", "Formation"),
-                                       ("created_at", "Saved At")]
+                    for key, label in [
+                        ("village", "Village"), ("formation", "Formation"),
+                        ("gps_lat", "GPS Lat"), ("gps_lon", "GPS Lon"),
+                        ("created_at", "Saved At"),
+                    ]
                 ]
             ),
             lib.html.div(style=lib.Style(display="flex", gap="24px", flexWrap="wrap",
@@ -2320,7 +2547,11 @@ def image_analysis(lib):
 
     return lib.tethys.Display(
         lib.html.div()(
-            lib.html.style()(SHARED_CSS),
+            lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
+
+            # Hidden Geolocation component — fires onChange on first fix
+            gps["Geolocation"](),
+
             lib.tabs.Tabs(
                 lib.tabs.TabList(
                     lib.tabs.Tab("Perform Analysis"),
@@ -2331,6 +2562,9 @@ def image_analysis(lib):
                     lib.html.div(style=lib.Style(padding="20px", maxWidth="800px",
                                                  margin="0 auto", fontFamily="Arial, sans-serif"))(
                         lib.html.h1("Rock Identifier with Gemini AI"),
+
+                        # GPS status banner
+                        gps_status_banner(lib, gps["location"], gps["saved_msg"]),
 
                         lib.lo.LoadingOverlay(active=processing, spinner=True)(
                             lib.bs.Form(
@@ -2397,6 +2631,19 @@ def image_analysis(lib):
                                     ),
                                 ),
                             ),
+
+                            # Show GPS fix that will be saved with this analysis
+                            lib.html.div(
+                                style=lib.Style(
+                                    fontSize="12px", color="#2e7d32",
+                                    background="#e8f5e9", border="1px solid #a5d6a7",
+                                    borderRadius="6px", padding="8px 12px",
+                                    marginBottom="12px", fontFamily="monospace",
+                                )
+                            )(
+                                f"📍 GPS will be saved with this record: "
+                                f"Lat {gps['location']['lat']}°  Lon {gps['location']['lon']}°"
+                            ) if gps["location"] else None,
 
                             status_alerts(lib, submit_success=db["submit_success"],
                                           success_message=db["success_message"],
