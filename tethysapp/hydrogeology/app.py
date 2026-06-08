@@ -2092,11 +2092,58 @@ def VES_FORM(lib):
 #  Resistivity Survey
 # ===========================================================================
 
+async def analyze_resistivity_data(api_key, survey_data):
+    if not api_key:
+        return {"status": "error", "message": "Gemini API key is not configured."}
+    if not survey_data:
+        return {"status": "error", "message": "No survey data provided."}
+
+    def _request_gemini():
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.5-flash:generateContent?key={api_key}"
+        )
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": (
+                        "Perform an analysis of the following vertical electrical sounding (VES) survey data. "
+                        "Provide a short, practical field description with key observable features."
+                        f"\n\nSurvey Data:\n{json.dumps(survey_data, indent=2)}"
+                    )},
+                ]
+            }]
+        }
+        req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
+                      headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req) as response:
+            body = json.loads(response.read().decode("utf-8"))
+
+        candidates = body.get("candidates", [])
+        if not candidates:
+            msg = body.get("error", {}).get("message", "No response from Gemini API.")
+            return {"status": "error", "message": msg}
+
+        parts    = candidates[0].get("content", {}).get("parts", [])
+        analysis = "".join([p.get("text", "") for p in parts]).strip()
+        if not analysis:
+            return {"status": "error", "message": "Gemini returned an empty analysis."}
+        return {"status": "success", "analysis": analysis}
+
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _request_gemini)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @App.page
 def resistivity_survey_form(lib):
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
+    gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     resources  = lib.hooks.use_resources()
     db_fpath   = resources.path / "resistivity_survey.sqlite"
     table_name = "resistivity_survey"
@@ -2121,6 +2168,15 @@ def resistivity_survey_form(lib):
 
     form_fields  = [[("location_point", "Location Point (Site ID)")]]
     summary_cols = [("location_point", "Location Point"), ("mn2_value", "MN/2")]
+
+    async def handle_resistivity_analysis(e):
+        # set_processing(True)
+        result = await analyze_resistivity_data(gemini_api_key, survey_data)
+        # set_analysis_results(
+        #     result["analysis"] if result["status"] == "success"
+        #     else f"Error: {result['message']}"
+        # )
+        # set_processing(False)
 
     def update_reading(index, field, value):
         new_readings = survey_data["readings"].copy()
@@ -2226,6 +2282,7 @@ def resistivity_survey_form(lib):
                             y_label="Electrode Spacing AB/2 (m)",
                             x_attr="resistivity", y_attr="depth",
                         ),
+                        lib.m.Button(onClick=handle_resistivity_analysis)("Analyze with Gemini")
                     ),
                     lib.html.p(style=lib.Style(fontSize="11px", color="#666", marginTop="10px"))(
                         "Schlumberger array: MN/2 constant, AB/2 varies. "
