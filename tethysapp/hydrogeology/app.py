@@ -10,6 +10,7 @@ import sqlite3
 from uuid import uuid4
 import json
 import base64
+from pathlib import Path
 from datetime import datetime
 
 
@@ -994,7 +995,7 @@ def gps_status_banner(lib, gps_location, gps_saved_msg):
 #   # and mount:    gps["Geolocation"]()
 # ---------------------------------------------------------------------------
 
-def use_page_gps(lib, resources, db_fpath, table_name, extra_fields=None):
+def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
     """
     Registers the Geolocation component and wires up automatic GPS saving
     for a data-entry page.
@@ -1347,7 +1348,7 @@ def home(lib):
     lib.bs.ToastHeader()
     lib.bs.ToastBody()
 
-    resources = lib.hooks.use_resources()
+    app_workspace = lib.hooks.use_workspace()
 
     try:
         sync_db_url = lib.hooks.use_setting("SYNC_DB_URL")
@@ -1365,6 +1366,11 @@ def home(lib):
     # GPS save state
     gps_saving,    set_gps_saving    = lib.hooks.use_state(False)
     gps_saved_msg, set_gps_saved_msg = lib.hooks.use_state(None)
+
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
 
     # ── Reverse geocode ────────────────────────────────────────────────────
     def _reverse_geocode(x, y):
@@ -1422,7 +1428,7 @@ def home(lib):
                 "date_of_survey": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source_name_2": f"EPSG:3857  X={location[0]:.2f}  Y={location[1]:.2f}",
             }
-            data_to_sqlite(resources.path / "map_location.sqlite", "Map_Location", [record])
+            data_to_sqlite(Path(app_workspace.path) / "map_location.sqlite", "Map_Location", [record])
             set_gps_saved_msg(
                 f"✅ Saved  {lat:+.6f}°, {lon:+.6f}°  →  Map_Location"
             )
@@ -1443,7 +1449,7 @@ def home(lib):
     def _do_push_bg():
         log = [f"⬆  Pushing  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
-            for tbl, res in sync_all_push(resources.path, sync_db_url).items():
+            for tbl, res in sync_all_push(Path(app_workspace.path), sync_db_url).items():
                 log.append(
                     f"✓  {tbl}: {res['rows']} rows" if res["status"] == "ok"
                     else f"✗  {tbl}: {res['message']}"
@@ -1457,7 +1463,7 @@ def home(lib):
     def _do_pull_bg():
         log = [f"⬇  Pulling  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
-            for tbl, res in sync_all_pull(resources.path, sync_db_url).items():
+            for tbl, res in sync_all_pull(Path(app_workspace.path), sync_db_url).items():
                 log.append(
                     f"✓  {tbl}: {res['rows']} new rows" if res["status"] == "ok"
                     else f"✗  {tbl}: {res['message']}"
@@ -1506,7 +1512,7 @@ def home(lib):
             )(
                 lib.bs.ToastHeader(lib.html.strong(className="me-auto")("Geolocation Error")),
                 lib.bs.ToastBody("Access was denied or is not available."),
-            ) if error else None,
+            ) if error else lib.html.div(),
 
             lib.html.div(className="gm-shell")(
 
@@ -1726,29 +1732,28 @@ def chatroom(lib):
     so all devices on the same Tethys instance see the same conversation.
     """
     lib.register("textarea.js", "ta", host="/static/hydrogeology/js", default_export="TextArea")
-    resources = lib.hooks.use_resources()
-    db_fpath  = resources.path / "chatroom.sqlite"
+    app_workspace = lib.hooks.use_workspace()
 
     # ── State ──────────────────────────────────────────────────────────────
     messages,     set_messages     = lib.hooks.use_state([])
     draft,        set_draft        = lib.hooks.use_state("")
     confirm_clear, set_confirm_clear = lib.hooks.use_state(False)
+    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    gps_location, set_gps_location = lib.hooks.use_state(None)
     user = lib.hooks.use_user()
     sender_name = user.username
 
+    async def receive_message(message):
+        set_messages(lambda messages: messages + [message])
+    sender = lib.hooks.use_channel_layer(group_name="hydro_sync_chat", receiver=receive_message)
+    
     # Attempt to get current GPS from a shared location state (best-effort)
     # We store it in a separate tiny SQLite so both pages can see it
-    gps_location, set_gps_location = lib.hooks.use_state(None)
-
-    async def receive_message(message):
-        set_messages(chat_messages_from_sqlite(db_fpath))
-
-    sender = lib.hooks.use_channel_layer(group_name="hydro_sync_chat", receiver=receive_message)
 
     # ── Load GPS from last saved Map_Location record (best-effort) ─────────
     def _load_last_gps():
         try:
-            rows = data_from_sqlite(resources.path / "map_location.sqlite", "Map_Location")
+            rows = data_from_sqlite(Path(app_workspace.path, "map_location.sqlite"), "Map_Location")
             if rows:
                 latest = rows[0]  # already DESC by created_at
                 e = latest.get("grid_east", "")
@@ -1762,8 +1767,8 @@ def chatroom(lib):
         msgs = chat_messages_from_sqlite(db_fpath)
         set_messages(msgs)
 
-    lib.hooks.use_effect(_load_last_gps, [])
-    lib.hooks.use_effect(_initialize_messages, [])
+    lib.hooks.use_effect(_load_last_gps, [app_workspace])
+    lib.hooks.use_effect(_initialize_messages, [db_fpath])
 
     # ── Send a message ─────────────────────────────────────────────────────
     def send_message(text=None):
@@ -1777,7 +1782,7 @@ def chatroom(lib):
                 lib.Props(
                     ts=ts,
                     text=text,
-                    user=sender_name,
+                    sender=sender_name,
                 )
             )
         )
@@ -1833,6 +1838,13 @@ def chatroom(lib):
         )
 
     # ── Page ───────────────────────────────────────────────────────────────
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
+    else:
+        set_db_fpath(Path(app_workspace.path, "chatroom.sqlite"))
+    
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(CHAT_CSS),
@@ -1910,7 +1922,7 @@ def chatroom(lib):
                         className="chat-text-input",
                         placeholder="Type a message…  (Enter to send)",
                         onInput=lambda e: set_draft(e),
-                        onEnterKey=lambda _: (send_message(), set_draft("")),
+                        onEnterKey=lambda message: (send_message(message), set_draft("")),
                         rows="1",
                     ),
 
@@ -1936,17 +1948,17 @@ def map_location(lib):
                  host="/static/hydrogeology/js", default_export="SketchCanvas")
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
+    
+    app_workspace  = lib.hooks.use_workspace()
+    color, set_color = lib.hooks.use_state("#100a0a")
+    width, set_width = lib.hooks.use_state(4)
+    db_fpath, set_db_fpath = lib.hooks.use_state(Path('foo'))
 
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "map_location.sqlite"
     table_name = "Map_Location"
     db = use_db_state(lib, db_fpath, table_name)
 
     # ── Auto GPS ──────────────────────────────────────────────────────────
-    gps = use_page_gps(lib, resources, db_fpath, table_name)
-
-    color, set_color = lib.hooks.use_state("#100a0a")
-    width, set_width = lib.hooks.use_state(4)
+    gps = use_page_gps(lib, db_fpath, table_name)
 
     form_fields = [
         [("village", "Village"), ("ves_no", "VES No."), ("map_sheet_no", "Map Sheet No."), ("mapped_by", "Mapped By")],
@@ -2009,6 +2021,13 @@ def map_location(lib):
     )
 
     # Render: hidden Geolocation component + GPS banner + tabs
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
+    else:
+        set_db_fpath(Path(app_workspace.path, "map_location.sqlite"))
+
     return lib.html.div()(
         gps["Geolocation"](),
         TabView(
@@ -2026,19 +2045,18 @@ def VES_FORM(lib):
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "ves_survey_data.sqlite"
+    app_workspace  = lib.hooks.use_workspace()
+    db_fpath, set_db_fpath = lib.hooks.use_state(Path('foo'))
     table_name = "VES_FORM"
     db = use_db_state(lib, db_fpath, table_name)
 
     # ── Auto GPS ──────────────────────────────────────────────────────────
-    gps = use_page_gps(lib, resources, db_fpath, table_name)
+    gps = use_page_gps(lib, db_fpath, table_name)
 
-    row_data_1, set_row_data_1 = lib.hooks.use_state(
-        [{"station": x, "reading": "", "apparent_resistivity": "", "remarks": ""}
-         for x in range(21)]
-    )
-
+    row_data = [
+        {"station": x, "reading": "", "apparent_resistivity": "", "remarks": ""} 
+        for x in range(21)
+    ]
     form_fields = [
         [("Project_Name", "Project Name"), ("profile", "Profile")],
         [("Area", "Area"), ("Coordinates", "Coordinates")],
@@ -2055,7 +2073,7 @@ def VES_FORM(lib):
                 lib.html.h3("Data Grid - Stations 0-20"),
                 lib.html.div(style=lib.Style(height="400px", border="1px solid #ddd"))(
                     lib.ag.AgGridReact(
-                        rowData=row_data_1,
+                        rowData=row_data,
                         columnDefs=[
                             {"field": "station",              "editable": False},
                             {"field": "reading",              "editable": True},
@@ -2069,7 +2087,7 @@ def VES_FORM(lib):
             lib.html.div(style=lib.Style(backgroundColor="white", padding="20px",
                                          borderRadius="8px", marginTop="20px"))(
                 lib.html.h3("Reading vs Station"),
-                lib.tethys.Chart(data=row_data_1, height=500, width=900,
+                lib.tethys.Chart(data=row_data, height=500, width=900,
                                  x_label="Station", y_label="Reading",
                                  x_attr="station", y_attr="reading"),
             ),
@@ -2079,6 +2097,13 @@ def VES_FORM(lib):
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="VES FORM — Vertical Electrical Sounding", extra_form_content=ves_extra,
     )
+
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
+    else:
+        set_db_fpath(Path(app_workspace.path, "ves_survey_data.sqlite"))
 
     return lib.html.div()(
         gps["Geolocation"](),
@@ -2144,19 +2169,13 @@ def resistivity_survey_form(lib):
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "resistivity_survey.sqlite"
-    table_name = "resistivity_survey"
-    db = use_db_state(lib, db_fpath, table_name)
-
-    # ── Auto GPS ──────────────────────────────────────────────────────────
-    gps = use_page_gps(lib, resources, db_fpath, table_name)
+    app_workspace  = lib.hooks.use_workspace()
+    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
 
     log_spacings = [
         1, 2.1, 3.0, 4.4, 6.3, 9.1, 13.2, 13.2, 19.0, 19.0,
         27.5, 27.5, 40, 58, 58, 83, 83, 120, 120, 175, 250, 375, 525, 750,
     ]
-
     survey_data, set_survey_data = lib.hooks.use_state({
         "location_point": "",
         "mn2_value": "0.5",
@@ -2165,6 +2184,11 @@ def resistivity_survey_form(lib):
             for s in log_spacings
         ],
     })
+    table_name = "resistivity_survey"
+    db = use_db_state(lib, db_fpath, table_name)
+
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, db_fpath, table_name)
 
     form_fields  = [[("location_point", "Location Point (Site ID)")]]
     summary_cols = [("location_point", "Location Point"), ("mn2_value", "MN/2")]
@@ -2296,6 +2320,13 @@ def resistivity_survey_form(lib):
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="Schlumberger Array VES Survey", extra_form_content=resistivity_extra,
     )
+    
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
+    else:
+        set_db_fpath(Path(app_workspace.path, "resistivity_survey.sqlite"))
 
     return lib.html.div()(
         gps["Geolocation"](),
@@ -2366,13 +2397,9 @@ def image_analysis(lib):
     lib.md.Markdown()
     lib.bs.Alert()
 
-    resources  = lib.hooks.use_resources()
-    db_fpath   = resources.path / "image_analysis.sqlite"
-    table_name = "Image_Analysis"
+    app_workspace  = lib.hooks.use_workspace()
 
-    # ── Auto GPS ──────────────────────────────────────────────────────────
-    gps = use_page_gps(lib, resources, db_fpath, table_name)
-
+    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
     processing,       set_processing       = lib.hooks.use_state(False)
     analysis_results, set_analysis_results = lib.hooks.use_state(None)
     image,            set_image            = lib.hooks.use_state(None)
@@ -2383,6 +2410,11 @@ def image_analysis(lib):
     delete_confirm,  set_delete_confirm  = lib.hooks.use_state(False)
 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
+
+    table_name = "Image_Analysis"
+
+    # ── Auto GPS ──────────────────────────────────────────────────────────
+    gps = use_page_gps(lib, db_fpath, table_name)
 
     db = use_db_state(lib, db_fpath, table_name)
 
@@ -2601,6 +2633,13 @@ def image_analysis(lib):
                 ),
             ),
         )
+    
+    if app_workspace.checking_quota:
+        return lib.m.Text("Checking app workspace storage quota...")
+    elif app_workspace.quota_exceeded:
+        return lib.m.Text("App workspace storage quota exceeded. Please free up space to use this app.")
+    else:
+        set_db_fpath(Path(app_workspace.path, "image_analysis.sqlite"))
 
     return lib.tethys.Display(
         lib.html.div()(

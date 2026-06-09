@@ -26,7 +26,7 @@ export default function TextArea(props, context) {
         props.onKeyDown = function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                originalOnEnterKey(e);
+                originalOnEnterKey(e.target.value);
                 setValue("");  // Clear the textarea after sending the message
             }
         };
