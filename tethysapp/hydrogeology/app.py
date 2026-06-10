@@ -2245,6 +2245,10 @@ def VES_FORM(lib):
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
+    # Preload conditionally rendered components
+    lib.md.Markdown()
+    lib.bs.Modal()
+
     app_workspace  = lib.hooks.use_workspace()
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     db_fpath, set_db_fpath = lib.hooks.use_state(Path('foo'))
@@ -2254,10 +2258,10 @@ def VES_FORM(lib):
     # ── Auto GPS ──────────────────────────────────────────────────────────
     gps = use_page_gps(lib, db_fpath, table_name)
 
-    row_data = [
+    row_data, set_row_data = lib.hooks.use_state([
         {"station": x, "reading": "", "apparent_resistivity": "", "remarks": ""} 
         for x in range(21)
-    ]
+    ])
  
     ves_ai_processing, set_ves_ai_processing = lib.hooks.use_state(False)
     ves_ai_result,     set_ves_ai_result     = lib.hooks.use_state(None)
@@ -2275,7 +2279,7 @@ def VES_FORM(lib):
  
     # ── Gemini analysis handler ────────────────────────────────────────────
     async def handle_ves_ai_analysis(e):
-        set_ves_ai_processing(True)
+        set_ves_ai_processing(lambda current: True)
         set_ves_ai_error(None)
         set_ves_ai_result(None)
  
@@ -2324,6 +2328,10 @@ def VES_FORM(lib):
             )
             if rec:
                 saved_analysis = rec.get("ai_analysis", "")
+        
+        def handle_cell_edit_stopped(e):
+            if hasattr(e, 'node') and hasattr(e.node, 'beans'):
+                set_row_data(e.node.beans.gridOptions.rowData)
  
         return lib.html.div()(
             # ── Station data grid ──────────────────────────────────────────
@@ -2340,6 +2348,7 @@ def VES_FORM(lib):
                             {"field": "remarks",              "editable": True},
                         ],
                         defaultColDef=lib.Props(flex=1),
+                        onCellEditingStopped=handle_cell_edit_stopped,
                     ),
                 ),
             ),
@@ -2358,8 +2367,9 @@ def VES_FORM(lib):
  
                     lib.html.button(
                         className="ai-analyze-btn",
-                        onClick=handle_ves_ai_analysis,
+                        onClick=event(handle_ves_ai_analysis),
                         disabled=ves_ai_processing,
+                        type="button",
                     )(
                         lib.html.span(className="spinner")("⟳") if ves_ai_processing
                         else "🤖",
@@ -2420,6 +2430,8 @@ def VES_FORM(lib):
     else:
         set_db_fpath(Path(app_workspace.path, "ves_survey_data.sqlite"))
 
+    print("ves_ai_processing", ves_ai_processing)
+    print("ves_ai_result", ves_ai_result)
     return lib.html.div()(
         gps["Geolocation"](),
         TabView(
