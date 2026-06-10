@@ -12,8 +12,8 @@ import json
 import base64
 from pathlib import Path
 from datetime import datetime
-
-
+ 
+ 
 class App(ComponentBase):
     name = "Hydro sync"
     description = "Field Assistant"
@@ -28,7 +28,7 @@ class App(ComponentBase):
     exit_url = "/apps/"
     default_layout = "NavHeader"
     nav_links = "auto"
-
+ 
     def custom_settings(self):
         return (
             SecretCustomSetting(
@@ -46,24 +46,24 @@ class App(ComponentBase):
                 required=False,
             ),
         )
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Coordinate helper  (Web Mercator → WGS84, no external lib needed)
 # ---------------------------------------------------------------------------
-
+ 
 def _merc_to_wgs84(x, y):
     lon = x / 20037508.342789244 * 180.0
     lat = math.degrees(
         2.0 * math.atan(math.exp(y / 20037508.342789244 * math.pi)) - math.pi / 2.0
     )
     return lon, lat
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # SQL helpers
 # ---------------------------------------------------------------------------
-
+ 
 def _safe_identifier(name):
     sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
     if not re.match(r'^[a-zA-Z_]', sanitized):
@@ -71,8 +71,8 @@ def _safe_identifier(name):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", sanitized):
         raise ValueError(f"Invalid SQL identifier: {sanitized}")
     return sanitized
-
-
+ 
+ 
 def delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="created_at"):
     table_name = _safe_identifier(table_name)
     id_col = _safe_identifier(id_col)
@@ -86,8 +86,8 @@ def delete_record_from_sqlite(db_fpath, table_name, record_id, id_col="created_a
         raise
     finally:
         conn.close()
-
-
+ 
+ 
 def update_data_in_sqlite(db_fpath, table_name, data, id_col="created_at"):
     table_name = _safe_identifier(table_name)
     id_col = _safe_identifier(id_col)
@@ -112,8 +112,8 @@ def update_data_in_sqlite(db_fpath, table_name, data, id_col="created_at"):
         raise
     finally:
         conn.close()
-
-
+ 
+ 
 def data_to_sqlite(db_fpath, table_name, data):
     table_name = _safe_identifier(table_name)
     if not data:
@@ -124,7 +124,7 @@ def data_to_sqlite(db_fpath, table_name, data):
         first_row = data[0]
         columns_orig = list(first_row.keys())
         columns_safe = [_safe_identifier(k) for k in columns_orig] + ["created_at"]
-
+ 
         cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
         if not cursor.fetchone():
             col_defs = ", ".join([f'"{c}" TEXT' for c in columns_safe])
@@ -140,7 +140,7 @@ def data_to_sqlite(db_fpath, table_name, data):
                         cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" TEXT')
                     except sqlite3.OperationalError:
                         pass
-
+ 
         for row in data:
             values = [
                 str(row.get(c, "")) if row.get(c) is not None else ""
@@ -152,15 +152,15 @@ def data_to_sqlite(db_fpath, table_name, data):
             cursor.execute(
                 f'INSERT INTO "{table_name}" ({col_names}) VALUES ({placeholders})', values
             )
-
+ 
         conn.commit()
     except Exception as e:
         conn.rollback()
         raise
     finally:
         conn.close()
-
-
+ 
+ 
 def data_from_sqlite(db_fpath, table_name):
     table_name = _safe_identifier(table_name)
     if not db_fpath.exists():
@@ -176,12 +176,12 @@ def data_from_sqlite(db_fpath, table_name):
         return []
     finally:
         conn.close()
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Chat helpers  — lightweight SQLite-backed chatroom
 # ---------------------------------------------------------------------------
-
+ 
 def chat_messages_from_sqlite(db_fpath):
     """Load the last 100 chat messages, oldest first for display."""
     if not db_fpath.exists():
@@ -203,8 +203,8 @@ def chat_messages_from_sqlite(db_fpath):
         return []
     finally:
         conn.close()
-
-
+ 
+ 
 def chat_message_to_sqlite(db_fpath, sender, text, ts=None):
     """Append a single chat message."""
     conn = sqlite3.connect(str(db_fpath))
@@ -221,8 +221,8 @@ def chat_message_to_sqlite(db_fpath, sender, text, ts=None):
         conn.commit()
     finally:
         conn.close()
-
-
+ 
+ 
 def chat_clear_sqlite(db_fpath):
     """Delete all messages."""
     if not db_fpath.exists():
@@ -233,28 +233,28 @@ def chat_clear_sqlite(db_fpath):
         conn.commit()
     finally:
         conn.close()
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Sync helpers  (SQLite  <-->  shared PostgreSQL via psycopg2)
 # ---------------------------------------------------------------------------
-
+ 
 SYNC_TABLES = {
     "Map_Location":        "map_location.sqlite",
     "VES_FORM":            "ves_survey_data.sqlite",
     "resistivity_survey":  "resistivity_survey.sqlite",
     "Image_Analysis":      "image_analysis.sqlite",
 }
-
-
+ 
+ 
 def _pg_connect(dsn):
     try:
         import psycopg2
         return psycopg2.connect(dsn)
     except ImportError:
         raise RuntimeError("psycopg2 not installed. Run:  pip install psycopg2-binary")
-
-
+ 
+ 
 def _push_table(db_fpath, table_name, dsn):
     rows = data_from_sqlite(db_fpath, table_name)
     if not rows:
@@ -301,8 +301,8 @@ def _push_table(db_fpath, table_name, dsn):
     finally:
         cur.close()
         pg.close()
-
-
+ 
+ 
 def _pull_table(db_fpath, table_name, dsn):
     pg  = _pg_connect(dsn)
     cur = pg.cursor()
@@ -353,8 +353,8 @@ def _pull_table(db_fpath, table_name, dsn):
     finally:
         cur.close()
         pg.close()
-
-
+ 
+ 
 def sync_all_push(resources_path, dsn):
     results = {}
     for tbl, fname in SYNC_TABLES.items():
@@ -364,8 +364,8 @@ def sync_all_push(resources_path, dsn):
         except Exception as e:
             results[tbl] = {"status": "error", "message": str(e)}
     return results
-
-
+ 
+ 
 def sync_all_pull(resources_path, dsn):
     results = {}
     for tbl, fname in SYNC_TABLES.items():
@@ -375,12 +375,12 @@ def sync_all_pull(resources_path, dsn):
         except Exception as e:
             results[tbl] = {"status": "error", "message": str(e)}
     return results
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Generalised database hook
 # ---------------------------------------------------------------------------
-
+ 
 def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
     displayed_data,  set_displayed_data  = lib.hooks.use_state([])
     submit_success,  set_submit_success  = lib.hooks.use_state(None)
@@ -389,12 +389,12 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
     is_loading,      set_is_loading      = lib.hooks.use_state(False)
     form_key,        set_form_key        = lib.hooks.use_state(str(uuid4()))
     data_loaded,     set_data_loaded     = lib.hooks.use_state(False)
-
+ 
     def _reload():
         data = data_from_sqlite(db_fpath, table_name)
         set_displayed_data(data)
         return data
-
+ 
     def _auto_load():
         if not data_loaded:
             try:
@@ -402,23 +402,23 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
             except Exception as err:
                 print(f"Auto-load error ({table_name}): {err}")
             set_data_loaded(True)
-
+ 
     lib.hooks.use_effect(_auto_load, [])
-
+ 
     def _clear_status():
         set_submit_success(None)
         set_error_message(None)
-
+ 
     def _show_success(msg):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         set_submit_success(True)
         set_success_message(f"{msg} at {timestamp}")
         lib.utils.background_execute(_clear_status, delay_seconds=4)
-
+ 
     def _show_error(err):
         set_submit_success(False)
         set_error_message(f"❌ Error: {str(err)[:120]}")
-
+ 
     def save(rows):
         set_is_loading(True)
         set_error_message(None)
@@ -431,7 +431,7 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
             _show_error(err)
         finally:
             set_is_loading(False)
-
+ 
     def update(rows):
         set_is_loading(True)
         set_error_message(None)
@@ -443,7 +443,7 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
             _show_error(err)
         finally:
             set_is_loading(False)
-
+ 
     def delete(record_id):
         set_is_loading(True)
         set_error_message(None)
@@ -455,7 +455,7 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
             _show_error(err)
         finally:
             set_is_loading(False)
-
+ 
     return {
         "displayed_data":     displayed_data,
         "set_displayed_data": set_displayed_data,
@@ -470,12 +470,12 @@ def use_db_state(lib, db_fpath, table_name, id_col="created_at"):
         "delete":             delete,
         "clear_status":       _clear_status,
     }
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Shared CSS
 # ---------------------------------------------------------------------------
-
+ 
 SHARED_CSS = """
     @keyframes spin {
         from { transform: rotate(0deg); }
@@ -492,7 +492,7 @@ SHARED_CSS = """
     }
     .success-alert { animation: slideDown 0.5s ease-out; }
 """
-
+ 
 # CSS for the Google-Maps-style home page
 HOME_CSS = """
     .gm-shell {
@@ -579,7 +579,7 @@ HOME_CSS = """
     .react-tabs__tab--selected { border-color: #1a73e8 !important; color: #1a73e8 !important; }
     .gm-map-panel { flex: 1; min-width: 0; position: relative; }
     .gm-map-panel > div, .gm-map-panel > div > div { height: 100% !important; }
-
+ 
     /* GPS save button pulse */
     @keyframes gps-pulse {
         0%   { box-shadow: 0 0 0 0 rgba(26,115,232,0.5); }
@@ -600,11 +600,11 @@ HOME_CSS = """
         animation: slideDown 0.4s ease-out;
     }
 """
-
+ 
 # ---------------------------------------------------------------------------
 # GPS banner CSS — shared across all data-entry pages
 # ---------------------------------------------------------------------------
-
+ 
 GPS_BANNER_CSS = """
     .gps-banner {
         display: flex;
@@ -640,14 +640,116 @@ GPS_BANNER_CSS = """
     .gps-banner.waiting .gps-banner-badge { background: #f57f17; }
     .gps-banner.saved   .gps-banner-badge { background: #1565c0; }
 """
-
+ 
+# ---------------------------------------------------------------------------
+# Gemini AI analysis panel CSS — shared by VES and Resistivity pages
+# ---------------------------------------------------------------------------
+ 
+AI_ANALYSIS_CSS = """
+    .ai-panel {
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-top: 24px;
+        color: #e2e8f0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    .ai-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .ai-panel-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: #60a5fa;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ai-panel-badge {
+        font-size: 10px;
+        font-weight: 700;
+        background: linear-gradient(90deg, #1d4ed8, #2563eb);
+        color: #fff;
+        border-radius: 20px;
+        padding: 3px 10px;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+    }
+    .ai-panel-body {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 16px 18px;
+        font-size: 13px;
+        line-height: 1.8;
+        color: #cbd5e1;
+        white-space: pre-wrap;
+        max-height: 340px;
+        overflow-y: auto;
+    }
+    .ai-panel-body::-webkit-scrollbar { width: 4px; }
+    .ai-panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    .ai-panel-meta {
+        margin-top: 10px;
+        font-size: 10px;
+        color: #475569;
+        font-family: 'Courier New', monospace;
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .ai-analyze-btn {
+        background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
+        border: none !important;
+        color: #fff !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        padding: 10px 22px !important;
+        border-radius: 8px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        cursor: pointer !important;
+        transition: opacity 0.2s, transform 0.15s !important;
+        box-shadow: 0 2px 12px rgba(59,130,246,0.35) !important;
+    }
+    .ai-analyze-btn:hover { opacity: 0.92 !important; transform: translateY(-1px) !important; }
+    .ai-analyze-btn:disabled { opacity: 0.5 !important; cursor: not-allowed !important; transform: none !important; }
+    .ai-error-box {
+        background: #450a0a;
+        border: 1px solid #7f1d1d;
+        color: #fca5a5;
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 13px;
+        margin-top: 10px;
+    }
+    @keyframes ai-pulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.4; }
+    }
+    .ai-thinking {
+        animation: ai-pulse 1.4s ease-in-out infinite;
+        color: #60a5fa;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        padding: 10px 0;
+    }
+"""
+ 
 # ---------------------------------------------------------------------------
 # Chat page CSS
 # ---------------------------------------------------------------------------
-
+ 
 CHAT_CSS = """
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Sora:wght@400;600;700&display=swap');
-
+ 
     :root {
         --chat-bg: #0f1117;
         --chat-panel: #1a1d27;
@@ -661,7 +763,7 @@ CHAT_CSS = """
         --chat-input-bg: #1e2130;
         --chat-header: linear-gradient(135deg, #1a1d27, #0f1117);
     }
-
+ 
     .chat-root {
         display: flex;
         flex-direction: column;
@@ -671,7 +773,7 @@ CHAT_CSS = """
         color: var(--chat-text);
         overflow: hidden;
     }
-
+ 
     /* ── Header ── */
     .chat-header {
         background: var(--chat-header);
@@ -706,7 +808,7 @@ CHAT_CSS = """
         margin-left: auto;
         flex-shrink: 0;
     }
-
+ 
     /* ── Name bar ── */
     .chat-name-bar {
         background: #131620;
@@ -734,7 +836,7 @@ CHAT_CSS = """
         font-size: 12px; color: var(--chat-muted);
         font-family: 'JetBrains Mono', monospace;
     }
-
+ 
     /* ── Messages area ── */
     .chat-messages {
         flex: 1;
@@ -746,14 +848,14 @@ CHAT_CSS = """
         scroll-behavior: smooth;
         scroll-snap-type: y mandatory;
     }
-    .chat-messages > :last-child { 
+    .chat-messages > :last-child {
         scroll-snap-align: start;
         scroll-initial-target: nearest;
     }
     .chat-messages::-webkit-scrollbar { width: 4px; }
     .chat-messages::-webkit-scrollbar-track { background: transparent; }
     .chat-messages::-webkit-scrollbar-thumb { background: var(--chat-border); border-radius: 2px; }
-
+ 
     /* ── Message bubble ── */
     .chat-msg-row {
         display: flex;
@@ -761,7 +863,7 @@ CHAT_CSS = """
         gap: 8px;
     }
     .chat-msg-row.me { flex-direction: row-reverse; }
-
+ 
     .chat-avatar {
         width: 30px; height: 30px; border-radius: 50%;
         background: linear-gradient(135deg, #475569, #334155);
@@ -774,16 +876,16 @@ CHAT_CSS = """
         background: linear-gradient(135deg, #1d4ed8, #3b82f6);
         color: #fff;
     }
-
+ 
     .chat-bubble-wrap { display: flex; flex-direction: column; max-width: 68%; }
     .chat-msg-row.me .chat-bubble-wrap { align-items: flex-end; }
-
+ 
     .chat-sender {
         font-size: 10px; font-family: 'JetBrains Mono', monospace;
         color: var(--chat-muted); margin-bottom: 3px; padding: 0 4px;
     }
     .chat-msg-row.me .chat-sender { color: #60a5fa; }
-
+ 
     .chat-bubble {
         background: var(--chat-bubble-other);
         border: 1px solid var(--chat-border);
@@ -802,12 +904,12 @@ CHAT_CSS = """
         color: #fff;
         box-shadow: 0 2px 12px rgba(59,130,246,0.3);
     }
-
+ 
     .chat-ts {
         font-size: 10px; font-family: 'JetBrains Mono', monospace;
         color: var(--chat-muted); margin-top: 4px; padding: 0 4px;
     }
-
+ 
     /* System / GPS coordinate messages */
     .chat-system-msg {
         text-align: center;
@@ -821,7 +923,7 @@ CHAT_CSS = """
         margin: 4px auto;
         max-width: 90%;
     }
-
+ 
     /* ── Input area ── */
     .chat-input-bar {
         background: var(--chat-panel);
@@ -852,7 +954,7 @@ CHAT_CSS = """
         box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
     }
     .chat-text-input::placeholder { color: var(--chat-muted); }
-
+ 
     .chat-send-btn {
         width: 42px; height: 42px;
         background: linear-gradient(135deg, #1d4ed8, #3b82f6);
@@ -873,7 +975,7 @@ CHAT_CSS = """
         background: #2a2d3a; color: #475569; cursor: not-allowed;
         box-shadow: none; transform: none;
     }
-
+ 
     /* GPS coords share button inside chat */
     .chat-gps-btn {
         width: 42px; height: 42px;
@@ -888,7 +990,7 @@ CHAT_CSS = """
     }
     .chat-gps-btn:hover { transform: scale(1.08); }
     .chat-gps-btn:disabled { background: #2a2d3a; color: #475569; cursor: not-allowed; transform: none; }
-
+ 
     /* Clear button */
     .chat-clear-btn {
         background: none; border: 1px solid var(--chat-border);
@@ -898,7 +1000,7 @@ CHAT_CSS = """
         transition: color 0.2s, border-color 0.2s;
     }
     .chat-clear-btn:hover { color: #ef4444; border-color: #ef4444; }
-
+ 
     /* Empty state */
     .chat-empty {
         display: flex; flex-direction: column;
@@ -908,19 +1010,19 @@ CHAT_CSS = """
     }
     .chat-empty-icon { font-size: 48px; opacity: 0.3; }
     .chat-empty-text { font-size: 14px; font-family: 'JetBrains Mono', monospace; }
-
+ 
     @keyframes msgPop {
         from { opacity: 0; transform: scale(0.9) translateY(8px); }
         to   { opacity: 1; transform: scale(1) translateY(0); }
     }
     .chat-msg-row { animation: msgPop 0.25s ease-out; }
 """
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Shared UI components
 # ---------------------------------------------------------------------------
-
+ 
 @component
 def status_alerts(lib, submit_success, success_message, error_message, extra_detail=None):
     return lib.html.div()(
@@ -944,23 +1046,14 @@ def status_alerts(lib, submit_success, success_message, error_message, extra_det
         ) if submit_success else None,
         lib.bs.Alert(variant="danger")(error_message) if error_message else None,
     )
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # GPS banner component — shows live fix status at the top of each form page
 # ---------------------------------------------------------------------------
-
+ 
 @component
 def gps_status_banner(lib, gps_location, gps_saved_msg):
-    """
-    Renders a coloured status strip at the top of a data-entry page.
-
-    States
-    ------
-    - waiting  : no fix yet
-    - saved    : auto-save just completed (gps_saved_msg is set)
-    - ready    : fix acquired, coordinates shown
-    """
     if gps_saved_msg:
         return lib.html.div(className="gps-banner saved")(
             lib.html.span(className="gps-banner-icon")("✅"),
@@ -983,16 +1076,10 @@ def gps_status_banner(lib, gps_location, gps_saved_msg):
         ),
         lib.html.span(className="gps-banner-badge")("LIVE"),
     )
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Reusable GPS hook for data-entry pages
-#
-# Usage inside any @App.page function:
-#
-#   gps = use_page_gps(lib, resources, db_fpath, table_name, extra_fields)
-#   # then render:  gps_status_banner(lib, gps["location"], gps["saved_msg"])
-#   # and mount:    gps["Geolocation"]()
 # ---------------------------------------------------------------------------
 
 def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
@@ -1014,19 +1101,17 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
         Geolocation – zero-argument callable that renders the hidden component
     """
     location,      set_location      = lib.hooks.use_state(None)
-    gps_saved,     set_gps_saved     = lib.hooks.use_state(False)   # True once saved this session
+    gps_saved,     set_gps_saved     = lib.hooks.use_state(False)
     saved_msg,     set_saved_msg     = lib.hooks.use_state(None)
     gps_error,     set_gps_error     = lib.hooks.use_state(None)
-
-    # Register Geolocation once
+ 
     lib.register(
         "geolocation.js", "geo",
         host="/static/hydrogeology/js",
         default_export="Geolocation",
     )
-
+ 
     def _do_save(pos):
-        """Background worker: write GPS fix into SQLite."""
         try:
             lon, lat = _merc_to_wgs84(pos[0], pos[1])
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1038,7 +1123,6 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
                 "gps_captured_at": ts,
                 **(extra_fields or {}),
             }
-            # Map_Location has its own richer schema — reuse existing columns
             if table_name == "Map_Location":
                 record = {
                     "grid_east":         f"{lon:.6f}",
@@ -1053,21 +1137,21 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
             set_saved_msg(
                 f"📍 Auto-saved  Lat {lat:+.6f}°  Lon {lon:+.6f}°  →  {table_name}"
             )
-
+ 
             def _clear():
                 set_saved_msg(None)
-
+ 
             lib.utils.background_execute(_clear, delay_seconds=6)
         except Exception as ex:
             set_saved_msg(f"❌ GPS save failed: {str(ex)[:80]}")
-
+ 
     def on_geo_change(e):
         pos = e.target.values_.position
         if pos and not gps_saved:
             set_location(pos)
             set_gps_saved(True)
             lib.utils.background_execute(_do_save, args=[pos])
-
+ 
     def Geolocation():
         return lib.geo.Geolocation(
             trackingOptions=lib.Props(enableHighAccuracy=True),
@@ -1076,24 +1160,24 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
             onError=lambda e: set_gps_error(str(e)),
             onChange=on_geo_change,
         )
-
+ 
     lon84, lat84 = _merc_to_wgs84(location[0], location[1]) if location else (None, None)
     gps_loc = (
         {"lon": f"{lon84:.6f}", "lat": f"{lat84:.6f}", "ts": datetime.now().strftime("%H:%M:%S")}
         if location else None
     )
-
+ 
     return {
         "location":    gps_loc,
         "saved_msg":   saved_msg,
         "Geolocation": Geolocation,
     }
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Generalised SummaryTable + FormView
 # ---------------------------------------------------------------------------
-
+ 
 def make_record_manager(
     lib, db, form_fields, summary_cols,
     page_title="Survey Form", extra_form_content=None, id_col="created_at",
@@ -1103,14 +1187,14 @@ def make_record_manager(
     selected_rows,       set_selected_rows       = lib.hooks.use_state(set())
     edit_mode,           set_edit_mode           = lib.hooks.use_state(False)
     delete_confirm_open, set_delete_confirm_open = lib.hooks.use_state(False)
-
+ 
     def SummaryTable():
         displayed_data = db["displayed_data"]
         if not displayed_data:
             return lib.html.div(
                 style=lib.Style(padding="20px", textAlign="center", color="#999", fontSize="16px")
             )("📭 No data submitted yet. Submit a form to see data here.")
-
+ 
         def toggle(record_id):
             new_sel = set(selected_rows)
             if record_id in new_sel:
@@ -1118,19 +1202,19 @@ def make_record_manager(
             else:
                 new_sel.add(record_id)
             set_selected_rows(new_sel)
-
+ 
         def handle_view():
             if len(selected_rows) == 1:
                 set_selected_record_id(list(selected_rows)[0])
                 set_edit_mode(False)
                 set_view_mode("detail")
-
+ 
         def confirm_delete(e):
             for rid in list(selected_rows):
                 db["delete"](rid)
             set_selected_rows(set())
             set_delete_confirm_open(False)
-
+ 
         table_rows = [
             lib.html.tr(
                 style=lib.Style(
@@ -1158,7 +1242,7 @@ def make_record_manager(
             )
             for record in displayed_data
         ]
-
+ 
         return lib.html.div(
             style=lib.Style(border="1px solid #ddd", borderRadius="4px",
                             overflow="hidden", backgroundColor="white")
@@ -1205,7 +1289,7 @@ def make_record_manager(
                 lib.html.tbody()(*table_rows),
             ),
         )
-
+ 
     def FormView(existing_id=None, form_edit_mode=True):
         selected_record_data = None
         if db["displayed_data"] and existing_id:
@@ -1213,7 +1297,7 @@ def make_record_manager(
                 (r for r in db["displayed_data"] if str(r.get(id_col)) == str(existing_id)), None
             )
         is_readonly = existing_id is not None and not form_edit_mode
-
+ 
         form_rows = [
             lib.bs.Row()(
                 *[
@@ -1236,16 +1320,16 @@ def make_record_manager(
             )
             for row in form_fields
         ]
-
+ 
         def handle_submit(e):
             db["save"]([dict(e["formData"])])
-
+ 
         def handle_save_changes(e):
             form_data = dict(e["formData"])
             form_data[id_col] = existing_id
             db["update"]([form_data])
             set_edit_mode(False)
-
+ 
         return lib.bs.Container(
             lib.html.h2(page_title),
             lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="15px"))(
@@ -1300,12 +1384,8 @@ def make_record_manager(
                 ) if not is_readonly else None,
             ),
         )
-
+ 
     def TabView(gps_banner=None):
-        """
-        gps_banner : optional renderable element to display above the tabs
-                     (pass the result of gps_status_banner(...) here).
-        """
         return lib.html.div()(
             lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
             gps_banner if gps_banner is not None else None,
@@ -1325,14 +1405,163 @@ def make_record_manager(
                 ),
             ),
         )
-
+ 
     return SummaryTable, FormView, TabView
-
-
+ 
+ 
+# ===========================================================================
+#  Gemini API helpers
+# ===========================================================================
+ 
+async def _call_gemini(api_key, prompt_text):
+    """
+    Generic Gemini text-only call.
+    Returns {"status": "success", "analysis": "..."} or {"status": "error", "message": "..."}.
+    """
+    if not api_key:
+        return {"status": "error", "message": "Gemini API key is not configured."}
+ 
+    def _request():
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.5-flash:generateContent?key={api_key}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}]
+        }
+        req = Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req) as response:
+            body = json.loads(response.read().decode("utf-8"))
+ 
+        candidates = body.get("candidates", [])
+        if not candidates:
+            msg = body.get("error", {}).get("message", "No response from Gemini API.")
+            return {"status": "error", "message": msg}
+ 
+        parts    = candidates[0].get("content", {}).get("parts", [])
+        analysis = "".join([p.get("text", "") for p in parts]).strip()
+        if not analysis:
+            return {"status": "error", "message": "Gemini returned an empty analysis."}
+        return {"status": "success", "analysis": analysis}
+ 
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _request)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+ 
+ 
+async def analyze_ves_data(api_key, form_meta, row_data):
+    """Analyse VES station data (station / reading / apparent_resistivity)."""
+    prompt = (
+        "You are a hydrogeophysics expert. Analyse the following Vertical Electrical Sounding "
+        "(VES) dataset collected in the field and provide:\n"
+        "1. A summary of the apparent-resistivity curve trend.\n"
+        "2. Interpretation of likely subsurface layers (depth, thickness, material).\n"
+        "3. Recommended borehole depth or aquifer target zone.\n"
+        "4. Any data quality issues or anomalies worth noting.\n\n"
+        f"Survey metadata: {json.dumps(form_meta, indent=2)}\n\n"
+        "Station data (station index | reading | apparent resistivity | remarks):\n"
+        + "\n".join(
+            f"  Station {r.get('station','?')} | reading={r.get('reading','—')} | "
+            f"ρa={r.get('apparent_resistivity','—')} | {r.get('remarks','')}"
+            for r in row_data
+            if r.get("reading") or r.get("apparent_resistivity")
+        )
+    )
+    return await _call_gemini(api_key, prompt)
+ 
+ 
+async def analyze_resistivity_survey(api_key, location_point, mn2_value, readings):
+    """Analyse Schlumberger VES survey readings."""
+    filled = [r for r in readings if r.get("reading_2")]
+    prompt = (
+        "You are a hydrogeophysics expert. Analyse the following Schlumberger Vertical Electrical "
+        "Sounding (VES) survey and provide:\n"
+        "1. Description of the apparent-resistivity curve shape and inflection points.\n"
+        "2. Layer-by-layer interpretation (resistivity value → likely geology).\n"
+        "3. Recommended borehole depth / target aquifer horizon.\n"
+        "4. Any curve breaks, equivalence issues, or suppression effects.\n"
+        "5. Brief field action recommendation.\n\n"
+        f"Location point: {location_point}\n"
+        f"MN/2 constant: {mn2_value} m\n\n"
+        "Schlumberger readings (AB/2 m | Resistance R Ω | ρa = R × MN/2 | notes):\n"
+        + "\n".join(
+            f"  AB/2={r.get('spacing','?')} m | R={r.get('reading_2','—')} Ω | "
+            f"ρa={r.get('average','—')} Ω·m | {r.get('notes','')}"
+            for r in filled
+        )
+    )
+    return await _call_gemini(api_key, prompt)
+ 
+ 
+async def analyze_resistivity_data(api_key, survey_data):
+    """Legacy wrapper kept for backward compatibility."""
+    return await analyze_resistivity_survey(
+        api_key,
+        survey_data.get("location_point", ""),
+        survey_data.get("mn2_value", "0.5"),
+        survey_data.get("readings", []),
+    )
+ 
+ 
+async def analyze_rock_from_bytes(api_key, data_bytes, mime_type="image/jpeg"):
+    if not api_key:
+        return {"status": "error", "message": "Gemini API key is not configured."}
+    if not data_bytes:
+        return {"status": "error", "message": "No image data provided."}
+ 
+    def _request_gemini():
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.5-flash:generateContent?key={api_key}"
+        )
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": (
+                        "Identify the likely rock type in this image and provide a short, practical "
+                        "field description with key observable features."
+                    )},
+                    {"inline_data": {
+                        "mime_type": mime_type or "image/jpeg",
+                        "data": base64.b64encode(data_bytes).decode("utf-8"),
+                    }},
+                ]
+            }]
+        }
+        req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
+                      headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req) as response:
+            body = json.loads(response.read().decode("utf-8"))
+ 
+        candidates = body.get("candidates", [])
+        if not candidates:
+            msg = body.get("error", {}).get("message", "No response from Gemini API.")
+            return {"status": "error", "message": msg}
+ 
+        parts    = candidates[0].get("content", {}).get("parts", [])
+        analysis = "".join([p.get("text", "") for p in parts]).strip()
+        if not analysis:
+            return {"status": "error", "message": "Gemini returned an empty analysis."}
+        return {"status": "success", "analysis": analysis}
+ 
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _request_gemini)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+ 
+ 
 # ===========================================================================
 #  HOME PAGE  —  Google Maps–style layout
 # ===========================================================================
-
+ 
 @App.page
 def home(lib):
     lib.register(
@@ -1354,8 +1583,7 @@ def home(lib):
         sync_db_url = lib.hooks.use_setting("SYNC_DB_URL")
     except Exception:
         sync_db_url = None
-
-    # ── State ──────────────────────────────────────────────────────────────
+ 
     location,      set_location      = lib.hooks.use_state(None)
     error,         set_error         = lib.hooks.use_state(None)
     hover_props,   set_hover_props   = lib.hooks.use_state({})
@@ -1363,7 +1591,6 @@ def home(lib):
     place_loaded,  set_place_loaded  = lib.hooks.use_state(False)
     sync_log,      set_sync_log      = lib.hooks.use_state([])
     sync_running,  set_sync_running  = lib.hooks.use_state(False)
-    # GPS save state
     gps_saving,    set_gps_saving    = lib.hooks.use_state(False)
     gps_saved_msg, set_gps_saved_msg = lib.hooks.use_state(None)
 
@@ -1387,15 +1614,14 @@ def home(lib):
         except Exception:
             set_place_name(None)
         set_place_loaded(True)
-
+ 
     def on_geo_change(e):
         pos = e.target.values_.position
         if pos:
             set_location(pos)
             if not place_loaded:
                 _reverse_geocode(pos[0], pos[1])
-
-    # ── GeoJSON for map dot ────────────────────────────────────────────────
+ 
     features = {
         "type": "FeatureCollection",
         "crs": {"type": "name", "properties": {"name": "EPSG:3857"}},
@@ -1405,15 +1631,13 @@ def home(lib):
             "properties": {"x": location[0], "y": location[1]},
         }],
     } if location else []
-
+ 
     lon84, lat84 = _merc_to_wgs84(location[0], location[1]) if location else (None, None)
     hx = hover_props.get("x")
     hy = hover_props.get("y")
     h_lon, h_lat = _merc_to_wgs84(float(hx), float(hy)) if hx is not None else (None, None)
-
-    # ── Save GPS to Map_Location sheet ────────────────────────────────────
+ 
     def _save_gps_to_sheets():
-        """Write current GPS coordinates into map_location.sqlite."""
         if not location:
             return
         set_gps_saving(True)
@@ -1435,17 +1659,16 @@ def home(lib):
 
             def _clear_gps_msg():
                 set_gps_saved_msg(None)
-
+ 
             lib.utils.background_execute(_clear_gps_msg, delay_seconds=5)
         except Exception as ex:
             set_gps_saved_msg(f"❌ {str(ex)[:80]}")
         finally:
             set_gps_saving(False)
-
+ 
     def handle_save_gps(e):
         lib.utils.background_execute(_save_gps_to_sheets)
-
-    # ── Sync handlers — run in background so UI never freezes ─────────────
+ 
     def _do_push_bg():
         log = [f"⬆  Pushing  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
@@ -1459,7 +1682,7 @@ def home(lib):
             log.append(f"❌  {ex}")
         set_sync_log(log)
         set_sync_running(False)
-
+ 
     def _do_pull_bg():
         log = [f"⬇  Pulling  —  {datetime.now().strftime('%H:%M:%S')}"]
         try:
@@ -1473,7 +1696,7 @@ def home(lib):
             log.append(f"❌  {ex}")
         set_sync_log(log)
         set_sync_running(False)
-
+ 
     def do_push(e):
         if not sync_db_url:
             set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
@@ -1481,7 +1704,7 @@ def home(lib):
         set_sync_running(True)
         set_sync_log([f"⬆  Push started  —  {datetime.now().strftime('%H:%M:%S')}  ⟳"])
         lib.utils.background_execute(_do_push_bg)
-
+ 
     def do_pull(e):
         if not sync_db_url:
             set_sync_log(["❌  SYNC_DB_URL not configured — see setup below."])
@@ -1489,12 +1712,11 @@ def home(lib):
         set_sync_running(True)
         set_sync_log([f"⬇  Pull started  —  {datetime.now().strftime('%H:%M:%S')}  ⟳"])
         lib.utils.background_execute(_do_pull_bg)
-
-    # ── Render ─────────────────────────────────────────────────────────────
+ 
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(SHARED_CSS + HOME_CSS),
-
+ 
             lib.geo.Geolocation(
                 trackingOptions=lib.Props(enableHighAccuracy=True),
                 tracking=True,
@@ -1502,7 +1724,7 @@ def home(lib):
                 onError=lambda e: set_error(e.message),
                 onChange=on_geo_change,
             ),
-
+ 
             lib.bs.Toast(
                 style=lib.Style(position="fixed", top="70px", right="16px", zIndex="2000"),
                 className="d-inline-block m-1",
@@ -1515,8 +1737,7 @@ def home(lib):
             ) if error else lib.html.div(),
 
             lib.html.div(className="gm-shell")(
-
-                # ══ LEFT SIDEBAR ══════════════════════════════════════════
+ 
                 lib.html.div(className="gm-sidebar")(
                     lib.html.div(className="gm-sidebar-header")(
                         lib.html.div(style=lib.Style(display="flex", alignItems="center", gap="10px"))(
@@ -1533,11 +1754,10 @@ def home(lib):
                                 lib.tabs.Tab("📍 Location"),
                                 lib.tabs.Tab("🔄 Sync"),
                             ),
-
-                            # ── Tab 1: GPS coordinates + Save button ───────
+ 
                             lib.tabs.TabPanel(
                                 lib.html.div(style=lib.Style(paddingTop="10px"))(
-
+ 
                                     lib.html.div(className="gps-waiting")(
                                         lib.html.div(style=lib.Style(fontSize="32px"))("📡"),
                                         lib.html.strong(
@@ -1548,7 +1768,7 @@ def home(lib):
                                                             marginTop="4px", color="#1a56c4")
                                         )("Allow location access when prompted."),
                                     ) if not location else None,
-
+ 
                                     lib.html.div(className="coord-card")(
                                         lib.html.div(className="coord-row")(
                                             lib.html.span(className="coord-axis")("X"),
@@ -1573,26 +1793,21 @@ def home(lib):
                                             f"📌  {place_name}" if place_name else "⏳  Resolving place name…"
                                         ),
                                     ) if location else None,
-
-                                    # ── Save GPS to Sheets button ──────────
+ 
                                     lib.bs.Button(
                                         variant="primary",
                                         className="gps-save-btn",
                                         onClick=handle_save_gps,
                                         disabled=not location or gps_saving,
-                                        style=lib.Style(
-                                            opacity="0.7" if gps_saving else "1",
-                                        ),
+                                        style=lib.Style(opacity="0.7" if gps_saving else "1"),
                                     )(
                                         lib.html.span(className="spinner")("⟳ ") if gps_saving else "📍 ",
                                         "Saving…" if gps_saving else "Save GPS → Map Location Sheet",
                                     ) if location else None,
-
-                                    # Saved confirmation badge
+ 
                                     lib.html.div(className="gps-saved-badge")(gps_saved_msg)
                                     if gps_saved_msg else None,
-
-                                    # Hover tooltip
+ 
                                     lib.html.div(className="hover-pill")(
                                         lib.html.div()(lib.html.b()("Hovered point")),
                                         lib.html.div()(f"X (Lon)  {h_lon:+.6f}°"),
@@ -1601,18 +1816,17 @@ def home(lib):
                                             style=lib.Style(opacity="0.65", fontSize="11px", marginTop="2px")
                                         )(f"EPSG:3857  X {float(hx):,.1f}   Y {float(hy):,.1f}"),
                                     ) if h_lon is not None else None,
-
+ 
                                     lib.html.div(
                                         style=lib.Style(fontSize="11px", color="#999",
                                                         textAlign="center", marginTop="8px")
                                     )(f"Last fix: {datetime.now().strftime('%H:%M:%S')}") if location else None,
                                 )
                             ),
-
-                            # ── Tab 2: Sync ────────────────────────────────
+ 
                             lib.tabs.TabPanel(
                                 lib.html.div(style=lib.Style(paddingTop="10px"))(
-
+ 
                                     lib.html.div(className="info-box")(
                                         lib.html.strong("How it works"),
                                         lib.html.br(),
@@ -1621,7 +1835,7 @@ def home(lib):
                                         "The office Pulls to receive field data. "
                                         "Duplicates are skipped automatically.",
                                     ),
-
+ 
                                     lib.html.div(className="setup-box")(
                                         lib.html.strong("⚙ One-time setup"),
                                         lib.html.ol(
@@ -1637,7 +1851,7 @@ def home(lib):
                                             lib.html.li()(lib.html.code()("pip install psycopg2-binary")),
                                         ),
                                     ) if not sync_db_url else None,
-
+ 
                                     lib.html.div(
                                         style=lib.Style(
                                             fontSize="11px", fontWeight="600",
@@ -1650,7 +1864,7 @@ def home(lib):
                                     )(
                                         "✅ Cloud DB configured" if sync_db_url else "⚠ Cloud DB not configured"
                                     ),
-
+ 
                                     lib.html.div(style=lib.Style(display="flex", gap="8px",
                                                                   flexWrap="wrap", marginBottom="6px"))(
                                         lib.bs.Button(
@@ -1672,11 +1886,11 @@ def home(lib):
                                             if sync_running else "⬇ Pull from Cloud"
                                         ),
                                     ),
-
+ 
                                     lib.html.div(className="sync-log")(
                                         *[lib.html.div()(line) for line in sync_log]
                                     ) if sync_log else None,
-
+ 
                                     lib.html.div(className="sidebar-section-title")("Tables synced"),
                                     *[
                                         lib.html.div(
@@ -1697,8 +1911,7 @@ def home(lib):
                         ),
                     ),
                 ),
-
-                # ══ RIGHT MAP PANEL ═══════════════════════════════════════
+ 
                 lib.html.div(className="gm-map-panel")(
                     lib.tethys.Map(key="map")(
                         lib.ol.layer.Vector(
@@ -1719,18 +1932,14 @@ def home(lib):
             ),
         )
     )
-
-
+ 
+ 
 # ===========================================================================
 #  LIVE CHATROOM
 # ===========================================================================
-
+ 
 @App.page
 def chatroom(lib):
-    """
-    Field team chatroom — messages stored in SQLite, polled every 4 seconds
-    so all devices on the same Tethys instance see the same conversation.
-    """
     lib.register("textarea.js", "ta", host="/static/hydrogeology/js", default_export="TextArea")
     app_workspace = lib.hooks.use_workspace()
 
@@ -1755,14 +1964,14 @@ def chatroom(lib):
         try:
             rows = data_from_sqlite(Path(app_workspace.path, "map_location.sqlite"), "Map_Location")
             if rows:
-                latest = rows[0]  # already DESC by created_at
+                latest = rows[0]
                 e = latest.get("grid_east", "")
                 n = latest.get("grid_north", "")
                 if e and n:
                     set_gps_location({"lon": e, "lat": n})
         except Exception:
             pass
-    
+ 
     def _initialize_messages():
         msgs = chat_messages_from_sqlite(db_fpath)
         set_messages(msgs)
@@ -1787,8 +1996,7 @@ def chatroom(lib):
             )
         )
         chat_message_to_sqlite(db_fpath, sender_name, text, ts)
-
-    # ── Share GPS coordinates as a message ─────────────────────────────────
+ 
     def share_gps(e):
         if not gps_location:
             return
@@ -1797,37 +2005,35 @@ def chatroom(lib):
             f"[ {datetime.now().strftime('%H:%M:%S')} ]"
         )
         send_message(text)
-
-    # ── Clear all messages ─────────────────────────────────────────────────
+ 
     def do_clear(e):
         chat_clear_sqlite(db_fpath)
         set_messages([])
         set_confirm_clear(False)
-
-    # ── Render helpers ─────────────────────────────────────────────────────
+ 
     def _avatar_initial(name):
         return (name or "?")[0].upper()
-
+ 
     def _fmt_ts(ts_str):
         try:
             return datetime.fromisoformat(ts_str).strftime("%H:%M")
         except Exception:
             return ""
-
+ 
     def _is_gps_msg(text):
         return text.startswith("📍 GPS Fix")
-
+ 
     def MessageRow(msg):
         is_me  = msg.get("sender", "") == sender_name.strip()
         text   = str(msg.get("text", ""))
         sender = str(msg.get("sender", "?"))
         ts     = _fmt_ts(str(msg.get("ts", "")))
-
+ 
         if _is_gps_msg(text):
             return lib.html.div(className="chat-system-msg")(text)
-
+ 
         row_cls = "chat-msg-row me" if is_me else "chat-msg-row"
-
+ 
         return lib.html.div(className=row_cls)(
             lib.html.div(className="chat-avatar")(_avatar_initial(sender)),
             lib.html.div(className="chat-bubble-wrap")(
@@ -1848,10 +2054,9 @@ def chatroom(lib):
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(CHAT_CSS),
-
+ 
             lib.html.div(className="chat-root")(
-
-                # Header
+ 
                 lib.html.div(className="chat-header")(
                     lib.html.div(className="chat-header-icon")("💬"),
                     lib.html.div()(
@@ -1861,15 +2066,13 @@ def chatroom(lib):
                         ),
                     ),
                     lib.html.div(className="chat-online-dot"),
-                    # Clear button (top right)
                     lib.html.button(
                         className="chat-clear-btn",
                         onClick=lambda e: set_confirm_clear(True),
                         style=lib.Style(marginLeft="12px"),
                     )("clear"),
                 ),
-
-                # Confirm-clear modal
+ 
                 lib.bs.Modal(show=confirm_clear,
                               onHide=lambda: set_confirm_clear(False))(
                     lib.bs.ModalHeader()("Clear Chat?"),
@@ -1880,8 +2083,7 @@ def chatroom(lib):
                         lib.bs.Button(variant="danger", onClick=do_clear)("Clear All"),
                     ),
                 ),
-
-                # Name bar
+ 
                 lib.html.div(className="chat-name-bar")(
                     lib.html.span(className="chat-name-label")("Sending as:"),
                     lib.m.Badge(color="blue")(sender_name),
@@ -1897,8 +2099,7 @@ def chatroom(lib):
                         if gps_location else "GPS: not loaded"
                     ),
                 ),
-
-                # Messages
+ 
                 lib.html.div(className="chat-messages", id="chat-scroll")(
                     *[MessageRow(m) for m in messages]
                 ) if messages else lib.html.div(className="chat-messages")(
@@ -1907,17 +2108,15 @@ def chatroom(lib):
                         lib.html.div(className="chat-empty-text")("No messages yet. Say hello!"),
                     )
                 ),
-
-                # Input bar
+ 
                 lib.html.div(className="chat-input-bar")(
-                    # Share GPS button
                     lib.html.button(
                         className="chat-gps-btn",
                         onClick=share_gps,
                         disabled=not gps_location,
                         title="Share last saved GPS coordinates",
                     )("📍"),
-
+ 
                     lib.ta.TextArea(
                         className="chat-text-input",
                         placeholder="Type a message…  (Enter to send)",
@@ -1925,7 +2124,7 @@ def chatroom(lib):
                         onEnterKey=lambda message: (send_message(message), set_draft("")),
                         rows="1",
                     ),
-
+ 
                     lib.html.button(
                         className="chat-send-btn",
                         onClick=lambda _: (send_message(), set_draft("")),
@@ -1936,12 +2135,12 @@ def chatroom(lib):
             ),
         )
     )
-
-
+ 
+ 
 # ===========================================================================
 #  Map Location
 # ===========================================================================
-
+ 
 @App.page
 def map_location(lib):
     lib.register("sketch_canvas.js", "sc",
@@ -1973,7 +2172,7 @@ def map_location(lib):
     ]
     summary_cols = [("village", "Village"), ("mapped_by", "Mapped By"),
                     ("grid_east", "Grid East"), ("grid_north", "Grid North")]
-
+ 
     def sketch_content(lib, existing_id, form_edit_mode):
         selected_record_data = None
         if db["displayed_data"] and existing_id:
@@ -1982,7 +2181,7 @@ def map_location(lib):
             )
         existing_sketch = selected_record_data.get("sketch", "") if selected_record_data else ""
         is_editable     = form_edit_mode
-
+ 
         return lib.html.div(style=lib.Style(padding="20px"))(
             lib.html.h1("LOCATION MAP"),
             lib.bs.Row(
@@ -2014,7 +2213,7 @@ def map_location(lib):
                 ),
             ),
         )
-
+ 
     _, _, TabView = make_record_manager(
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="Map Location Survey Form", extra_form_content=sketch_content,
@@ -2034,18 +2233,20 @@ def map_location(lib):
             gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
         ),
     )
-
-
+ 
+ 
 # ===========================================================================
-#  VES Form
+#  VES Form  —  with Gemini AI analysis on the chart
 # ===========================================================================
-
+ 
 @App.page
 def VES_FORM(lib):
+    lib.register("react-markdown", "md", default_export="Markdown")
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
 
     app_workspace  = lib.hooks.use_workspace()
+    gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     db_fpath, set_db_fpath = lib.hooks.use_state(Path('foo'))
     table_name = "VES_FORM"
     db = use_db_state(lib, db_fpath, table_name)
@@ -2057,6 +2258,12 @@ def VES_FORM(lib):
         {"station": x, "reading": "", "apparent_resistivity": "", "remarks": ""} 
         for x in range(21)
     ]
+ 
+    ves_ai_processing, set_ves_ai_processing = lib.hooks.use_state(False)
+    ves_ai_result,     set_ves_ai_result     = lib.hooks.use_state(None)
+    ves_ai_error,      set_ves_ai_error      = lib.hooks.use_state(None)
+    ves_ai_saved_at,   set_ves_ai_saved_at   = lib.hooks.use_state(None)
+ 
     form_fields = [
         [("Project_Name", "Project Name"), ("profile", "Profile")],
         [("Area", "Area"), ("Coordinates", "Coordinates")],
@@ -2065,9 +2272,61 @@ def VES_FORM(lib):
         [("half_AB", "1/2 AB"), ("half_MN", "1/2 MN")],
     ]
     summary_cols = [("Project_Name", "Project Name"), ("Area", "Area"), ("Date", "Date")]
-
+ 
+    # ── Gemini analysis handler ────────────────────────────────────────────
+    async def handle_ves_ai_analysis(e):
+        set_ves_ai_processing(True)
+        set_ves_ai_error(None)
+        set_ves_ai_result(None)
+ 
+        # Collect current form metadata from the displayed_data last record as a proxy,
+        # or build from state. We pass the raw grid data which is always current.
+        form_meta = {
+            "note": "Metadata from the Add Data form fields above",
+        }
+        result = await analyze_ves_data(gemini_api_key, form_meta, row_data)
+ 
+        if result["status"] == "success":
+            analysis_text = result["analysis"]
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            set_ves_ai_result(analysis_text)
+            set_ves_ai_saved_at(ts)
+ 
+            # Persist analysis alongside current station data in SQLite
+            def _save_ai():
+                try:
+                    data_to_sqlite(db_fpath, table_name, [{
+                        "Project_Name":   "AI Analysis",
+                        "Area":           "VES Chart Analysis",
+                        "Date":           ts,
+                        "ai_analysis":    analysis_text,
+                        "ai_analysed_at": ts,
+                        "station_data":   json.dumps(row_data),
+                        "gps_lat":        gps["location"]["lat"] if gps["location"] else "",
+                        "gps_lon":        gps["location"]["lon"] if gps["location"] else "",
+                    }])
+                    db["reload"]()
+                except Exception as ex:
+                    set_ves_ai_error(f"Saved analysis but DB write failed: {str(ex)[:80]}")
+ 
+            lib.utils.background_execute(_save_ai)
+        else:
+            set_ves_ai_error(result["message"])
+ 
+        set_ves_ai_processing(False)
+ 
     def ves_extra(lib, existing_id, form_edit_mode):
+        # If viewing a saved record that has ai_analysis, show it
+        saved_analysis = None
+        if existing_id and db["displayed_data"]:
+            rec = next(
+                (r for r in db["displayed_data"] if str(r.get("created_at")) == str(existing_id)), None
+            )
+            if rec:
+                saved_analysis = rec.get("ai_analysis", "")
+ 
         return lib.html.div()(
+            # ── Station data grid ──────────────────────────────────────────
             lib.html.div(style=lib.Style(backgroundColor="white", padding="20px",
                                          borderRadius="8px", marginTop="20px"))(
                 lib.html.h3("Data Grid - Stations 0-20"),
@@ -2084,15 +2343,71 @@ def VES_FORM(lib):
                     ),
                 ),
             ),
+ 
+            # ── Chart ──────────────────────────────────────────────────────
             lib.html.div(style=lib.Style(backgroundColor="white", padding="20px",
                                          borderRadius="8px", marginTop="20px"))(
                 lib.html.h3("Reading vs Station"),
                 lib.tethys.Chart(data=row_data, height=500, width=900,
                                  x_label="Station", y_label="Reading",
                                  x_attr="station", y_attr="reading"),
+ 
+                # ── Gemini AI button + panel ───────────────────────────────
+                lib.html.div(style=lib.Style(marginTop="20px"))(
+                    lib.html.style()(AI_ANALYSIS_CSS),
+ 
+                    lib.html.button(
+                        className="ai-analyze-btn",
+                        onClick=handle_ves_ai_analysis,
+                        disabled=ves_ai_processing,
+                    )(
+                        lib.html.span(className="spinner")("⟳") if ves_ai_processing
+                        else "🤖",
+                        " Analysing with Gemini…" if ves_ai_processing
+                        else " Analyse Chart with Gemini AI",
+                    ),
+ 
+                    # Error box
+                    lib.html.div(className="ai-error-box")(
+                        f"❌ {ves_ai_error}"
+                    ) if ves_ai_error else None,
+ 
+                    # Live result panel (new analysis just run)
+                    lib.html.div(className="ai-panel")(
+                        lib.html.div(className="ai-panel-header")(
+                            lib.html.div(className="ai-panel-title")(
+                                "🤖 Gemini AI — VES Analysis"
+                            ),
+                            lib.html.span(className="ai-panel-badge")("Gemini 2.5 Flash"),
+                        ),
+                        lib.html.div(className="ai-panel-body")(
+                            lib.md.Markdown(ves_ai_result)
+                        ),
+                        lib.html.div(className="ai-panel-meta")(
+                            lib.html.span()(f"⏱ Analysed: {ves_ai_saved_at}"),
+                            lib.html.span()(f"💾 Saved to VES_FORM table"),
+                            lib.html.span()(
+                                f"📍 GPS: {gps['location']['lat']}°, {gps['location']['lon']}°"
+                            ) if gps["location"] else None,
+                        ),
+                    ) if ves_ai_result else None,
+ 
+                    # Saved analysis shown when viewing an archived record
+                    lib.html.div(className="ai-panel")(
+                        lib.html.div(className="ai-panel-header")(
+                            lib.html.div(className="ai-panel-title")(
+                                "🤖 Stored Gemini Analysis"
+                            ),
+                            lib.html.span(className="ai-panel-badge")("archived"),
+                        ),
+                        lib.html.div(className="ai-panel-body")(
+                            lib.md.Markdown(saved_analysis)
+                        ),
+                    ) if saved_analysis and not ves_ai_result else None,
+                ),
             ),
         )
-
+ 
     _, _, TabView = make_record_manager(
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="VES FORM — Vertical Electrical Sounding", extra_form_content=ves_extra,
@@ -2111,63 +2426,18 @@ def VES_FORM(lib):
             gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
         ),
     )
-
-
+ 
+ 
 # ===========================================================================
-#  Resistivity Survey
+#  Resistivity Survey  —  with Gemini AI analysis on the chart
 # ===========================================================================
-
-async def analyze_resistivity_data(api_key, survey_data):
-    if not api_key:
-        return {"status": "error", "message": "Gemini API key is not configured."}
-    if not survey_data:
-        return {"status": "error", "message": "No survey data provided."}
-
-    def _request_gemini():
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash:generateContent?key={api_key}"
-        )
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": (
-                        "Perform an analysis of the following vertical electrical sounding (VES) survey data. "
-                        "Provide a short, practical field description with key observable features."
-                        f"\n\nSurvey Data:\n{json.dumps(survey_data, indent=2)}"
-                    )},
-                ]
-            }]
-        }
-        req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
-                      headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(req) as response:
-            body = json.loads(response.read().decode("utf-8"))
-
-        candidates = body.get("candidates", [])
-        if not candidates:
-            msg = body.get("error", {}).get("message", "No response from Gemini API.")
-            return {"status": "error", "message": msg}
-
-        parts    = candidates[0].get("content", {}).get("parts", [])
-        analysis = "".join([p.get("text", "") for p in parts]).strip()
-        if not analysis:
-            return {"status": "error", "message": "Gemini returned an empty analysis."}
-        return {"status": "success", "analysis": analysis}
-
-    try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _request_gemini)
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
+ 
 @App.page
 def resistivity_survey_form(lib):
     lib.register("react-tabs", "tabs",
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
-
+    lib.register("react-markdown", "md", default_export="Markdown")
+ 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     app_workspace  = lib.hooks.use_workspace()
     db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
@@ -2190,18 +2460,57 @@ def resistivity_survey_form(lib):
     # ── Auto GPS ──────────────────────────────────────────────────────────
     gps = use_page_gps(lib, db_fpath, table_name)
 
+ 
+    # ── AI state for Resistivity form ─────────────────────────────────────
+    res_ai_processing, set_res_ai_processing = lib.hooks.use_state(False)
+    res_ai_result,     set_res_ai_result     = lib.hooks.use_state(None)
+    res_ai_error,      set_res_ai_error      = lib.hooks.use_state(None)
+    res_ai_saved_at,   set_res_ai_saved_at   = lib.hooks.use_state(None)
+ 
     form_fields  = [[("location_point", "Location Point (Site ID)")]]
     summary_cols = [("location_point", "Location Point"), ("mn2_value", "MN/2")]
-
+ 
+    # ── Gemini analysis handler ────────────────────────────────────────────
     async def handle_resistivity_analysis(e):
-        # set_processing(True)
-        result = await analyze_resistivity_data(gemini_api_key, survey_data)
-        # set_analysis_results(
-        #     result["analysis"] if result["status"] == "success"
-        #     else f"Error: {result['message']}"
-        # )
-        # set_processing(False)
-
+        set_res_ai_processing(True)
+        set_res_ai_error(None)
+        set_res_ai_result(None)
+ 
+        result = await analyze_resistivity_survey(
+            gemini_api_key,
+            survey_data.get("location_point", ""),
+            survey_data.get("mn2_value", "0.5"),
+            survey_data.get("readings", []),
+        )
+ 
+        if result["status"] == "success":
+            analysis_text = result["analysis"]
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            set_res_ai_result(analysis_text)
+            set_res_ai_saved_at(ts)
+ 
+            # Persist analysis to SQLite alongside current survey snapshot
+            def _save_ai():
+                try:
+                    data_to_sqlite(db_fpath, table_name, [{
+                        "location_point":  survey_data.get("location_point", ""),
+                        "mn2_value":       survey_data.get("mn2_value", ""),
+                        "ai_analysis":     analysis_text,
+                        "ai_analysed_at":  ts,
+                        "readings_json":   json.dumps(survey_data.get("readings", [])),
+                        "gps_lat":         gps["location"]["lat"] if gps["location"] else "",
+                        "gps_lon":         gps["location"]["lon"] if gps["location"] else "",
+                    }])
+                    db["reload"]()
+                except Exception as ex:
+                    set_res_ai_error(f"Saved analysis but DB write failed: {str(ex)[:80]}")
+ 
+            lib.utils.background_execute(_save_ai)
+        else:
+            set_res_ai_error(result["message"])
+ 
+        set_res_ai_processing(False)
+ 
     def update_reading(index, field, value):
         new_readings = survey_data["readings"].copy()
         new_readings[index] = {**new_readings[index], field: value}
@@ -2210,7 +2519,7 @@ def resistivity_survey_form(lib):
         if r and mn2:
             new_readings[index]["average"] = str(r * mn2)
         set_survey_data({**survey_data, "readings": new_readings})
-
+ 
     def update_mn2(value):
         new_readings = survey_data["readings"].copy()
         mn2 = float(value) if value else 0.5
@@ -2219,7 +2528,7 @@ def resistivity_survey_form(lib):
             if r and mn2:
                 new_readings[i]["average"] = str(r * mn2)
         set_survey_data({**survey_data, "mn2_value": value, "readings": new_readings})
-
+ 
     plot_data = []
     for i, spacing in enumerate(log_spacings):
         if i < len(survey_data["readings"]):
@@ -2229,9 +2538,19 @@ def resistivity_survey_form(lib):
                     plot_data.append({"depth": spacing, "resistivity": float(reading["average"])})
                 except Exception:
                     pass
-
+ 
     def resistivity_extra(lib, existing_id, form_edit_mode):
         is_readonly = existing_id is not None and not form_edit_mode
+ 
+        # If viewing a saved record that has ai_analysis, show it
+        saved_analysis = None
+        if existing_id and db["displayed_data"]:
+            rec = next(
+                (r for r in db["displayed_data"] if str(r.get("created_at")) == str(existing_id)), None
+            )
+            if rec:
+                saved_analysis = rec.get("ai_analysis", "")
+ 
         return lib.html.div()(
             lib.html.div(style=lib.Style(display="flex", gap="20px", margin="20px 0"))(
                 lib.html.div(style=lib.Style(flex="0 0 300px"))(
@@ -2248,7 +2567,10 @@ def resistivity_survey_form(lib):
                     ),
                 ),
             ),
+ 
+            # ── Data table + chart side by side ───────────────────────────
             lib.html.div(style=lib.Style(display="flex", gap="20px", marginBottom="20px"))(
+ 
                 lib.html.div(style=lib.Style(flex="0 0 550px", border="1px solid #999",
                                              padding="10px", backgroundColor="#f9f9f9"))(
                     lib.html.table(
@@ -2297,6 +2619,7 @@ def resistivity_survey_form(lib):
                         ),
                     ),
                 ),
+ 
                 lib.html.div(style=lib.Style(flex=1, minHeight="700px"))(
                     lib.html.div(style=lib.Style(height="700px"))(
                         lib.tethys.Chart(
@@ -2306,7 +2629,6 @@ def resistivity_survey_form(lib):
                             y_label="Electrode Spacing AB/2 (m)",
                             x_attr="resistivity", y_attr="depth",
                         ),
-                        lib.m.Button(onClick=handle_resistivity_analysis)("Analyze with Gemini")
                     ),
                     lib.html.p(style=lib.Style(fontSize="11px", color="#666", marginTop="10px"))(
                         "Schlumberger array: MN/2 constant, AB/2 varies. "
@@ -2314,8 +2636,63 @@ def resistivity_survey_form(lib):
                     ),
                 ),
             ),
+ 
+            # ── Gemini AI section (below chart) ───────────────────────────
+            lib.html.div()(
+                lib.html.style()(AI_ANALYSIS_CSS),
+ 
+                lib.html.button(
+                    className="ai-analyze-btn",
+                    onClick=handle_resistivity_analysis,
+                    disabled=res_ai_processing or is_readonly,
+                )(
+                    lib.html.span(className="spinner")("⟳") if res_ai_processing
+                    else "🤖",
+                    " Analysing with Gemini…" if res_ai_processing
+                    else " Analyse Resistivity Curve with Gemini AI",
+                ),
+ 
+                # Error
+                lib.html.div(className="ai-error-box")(
+                    f"❌ {res_ai_error}"
+                ) if res_ai_error else None,
+ 
+                # Live analysis result
+                lib.html.div(className="ai-panel")(
+                    lib.html.div(className="ai-panel-header")(
+                        lib.html.div(className="ai-panel-title")(
+                            "🤖 Gemini AI — Schlumberger VES Analysis"
+                        ),
+                        lib.html.span(className="ai-panel-badge")("Gemini 2.5 Flash"),
+                    ),
+                    lib.html.div(className="ai-panel-body")(
+                        lib.md.Markdown(res_ai_result)
+                    ),
+                    lib.html.div(className="ai-panel-meta")(
+                        lib.html.span()(f"⏱ Analysed: {res_ai_saved_at}"),
+                        lib.html.span()(f"📍 Location: {survey_data.get('location_point', '—')}"),
+                        lib.html.span()(f"💾 Saved to resistivity_survey table"),
+                        lib.html.span()(
+                            f"🌐 GPS: {gps['location']['lat']}°, {gps['location']['lon']}°"
+                        ) if gps["location"] else None,
+                    ),
+                ) if res_ai_result else None,
+ 
+                # Archived analysis shown when viewing a saved record
+                lib.html.div(className="ai-panel")(
+                    lib.html.div(className="ai-panel-header")(
+                        lib.html.div(className="ai-panel-title")(
+                            "🤖 Stored Gemini Analysis"
+                        ),
+                        lib.html.span(className="ai-panel-badge")("archived"),
+                    ),
+                    lib.html.div(className="ai-panel-body")(
+                        lib.md.Markdown(saved_analysis)
+                    ),
+                ) if saved_analysis and not res_ai_result else None,
+            ),
         )
-
+ 
     _, _, TabView = make_record_manager(
         lib, db, form_fields=form_fields, summary_cols=summary_cols,
         page_title="Schlumberger Array VES Survey", extra_form_content=resistivity_extra,
@@ -2334,61 +2711,12 @@ def resistivity_survey_form(lib):
             gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])
         ),
     )
-
-
+ 
+ 
 # ===========================================================================
 #  Gemini rock-image analysis
 # ===========================================================================
-
-async def analyze_rock_from_bytes(api_key, data_bytes, mime_type="image/jpeg"):
-    if not api_key:
-        return {"status": "error", "message": "Gemini API key is not configured."}
-    if not data_bytes:
-        return {"status": "error", "message": "No image data provided."}
-
-    def _request_gemini():
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash:generateContent?key={api_key}"
-        )
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": (
-                        "Identify the likely rock type in this image and provide a short, practical "
-                        "field description with key observable features."
-                    )},
-                    {"inline_data": {
-                        "mime_type": mime_type or "image/jpeg",
-                        "data": base64.b64encode(data_bytes).decode("utf-8"),
-                    }},
-                ]
-            }]
-        }
-        req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
-                      headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(req) as response:
-            body = json.loads(response.read().decode("utf-8"))
-
-        candidates = body.get("candidates", [])
-        if not candidates:
-            msg = body.get("error", {}).get("message", "No response from Gemini API.")
-            return {"status": "error", "message": msg}
-
-        parts    = candidates[0].get("content", {}).get("parts", [])
-        analysis = "".join([p.get("text", "") for p in parts]).strip()
-        if not analysis:
-            return {"status": "error", "message": "Gemini returned an empty analysis."}
-        return {"status": "success", "analysis": analysis}
-
-    try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _request_gemini)
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
+ 
 @App.page
 def image_analysis(lib):
     lib.register("react-markdown", "md", default_export="Markdown")
@@ -2403,12 +2731,12 @@ def image_analysis(lib):
     processing,       set_processing       = lib.hooks.use_state(False)
     analysis_results, set_analysis_results = lib.hooks.use_state(None)
     image,            set_image            = lib.hooks.use_state(None)
-
+ 
     archive_view,    set_archive_view    = lib.hooks.use_state("list")
     selected_record, set_selected_record = lib.hooks.use_state(None)
     selected_rows,   set_selected_rows   = lib.hooks.use_state(set())
     delete_confirm,  set_delete_confirm  = lib.hooks.use_state(False)
-
+ 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
 
     table_name = "Image_Analysis"
@@ -2417,7 +2745,7 @@ def image_analysis(lib):
     gps = use_page_gps(lib, db_fpath, table_name)
 
     db = use_db_state(lib, db_fpath, table_name)
-
+ 
     async def handle_file_upload(e):
         set_processing(True)
         image_data = e["formData"].get("upload")
@@ -2431,7 +2759,7 @@ def image_analysis(lib):
             else f"Error: {result['message']}"
         )
         set_processing(False)
-
+ 
     def handle_save_analysis(e):
         form_data = dict(e["formData"])
         db["save"]([{
@@ -2439,13 +2767,12 @@ def image_analysis(lib):
             "formation": form_data.get("formation", ""),
             "image":     image,
             "analysis":  analysis_results,
-            # Attach GPS fix to saved analysis record if available
             "gps_lat":   gps["location"]["lat"] if gps["location"] else "",
             "gps_lon":   gps["location"]["lon"] if gps["location"] else "",
         }])
         set_analysis_results(None)
         set_image(None)
-
+ 
     def toggle_row(rid):
         new_sel = set(selected_rows)
         if rid in new_sel:
@@ -2453,7 +2780,7 @@ def image_analysis(lib):
         else:
             new_sel.add(rid)
         set_selected_rows(new_sel)
-
+ 
     def open_detail():
         if len(selected_rows) == 1:
             rid    = list(selected_rows)[0]
@@ -2463,20 +2790,20 @@ def image_analysis(lib):
             if record:
                 set_selected_record(record)
                 set_archive_view("detail")
-
+ 
     def do_delete():
         for rid in list(selected_rows):
             db["delete"](rid)
         set_selected_rows(set())
         set_delete_confirm(False)
-
+ 
     def ArchiveList():
         data = db["displayed_data"]
         if not data:
             return lib.html.div(
                 style=lib.Style(padding="40px", textAlign="center", color="#999", fontSize="16px")
             )("📭 No analyses saved yet.")
-
+ 
         rows = [
             lib.html.tr(
                 style=lib.Style(
@@ -2508,7 +2835,7 @@ def image_analysis(lib):
             )
             for record in data
         ]
-
+ 
         return lib.html.div()(
             lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="15px",
                                          alignItems="center"))(
@@ -2555,12 +2882,12 @@ def image_analysis(lib):
                 )
             ),
         )
-
+ 
     def ArchiveDetail():
         rec = selected_record
         if not rec:
             return lib.html.div()("No record selected.")
-
+ 
         return lib.html.div(style=lib.Style(padding="20px", maxWidth="860px"))(
             lib.html.div(style=lib.Style(display="flex", gap="10px", marginBottom="20px",
                                          alignItems="center"))(
@@ -2644,24 +2971,22 @@ def image_analysis(lib):
     return lib.tethys.Display(
         lib.html.div()(
             lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
-
-            # Hidden Geolocation component — fires onChange on first fix
+ 
             gps["Geolocation"](),
-
+ 
             lib.tabs.Tabs(
                 lib.tabs.TabList(
                     lib.tabs.Tab("Perform Analysis"),
                     lib.tabs.Tab("Analysis Archive"),
                 ),
-
+ 
                 lib.tabs.TabPanel(
                     lib.html.div(style=lib.Style(padding="20px", maxWidth="800px",
                                                  margin="0 auto", fontFamily="Arial, sans-serif"))(
                         lib.html.h1("Rock Identifier with Gemini AI"),
-
-                        # GPS status banner
+ 
                         gps_status_banner(lib, gps["location"], gps["saved_msg"]),
-
+ 
                         lib.lo.LoadingOverlay(active=processing, spinner=True)(
                             lib.bs.Form(
                                 onSubmit=event(handle_file_upload,
@@ -2673,14 +2998,14 @@ def image_analysis(lib):
                                 lib.html.button(type="submit")("Analyze File"),
                             )
                         ) if not analysis_results else
-
+ 
                         lib.bs.Form(onSubmit=handle_save_analysis)(
                             lib.bs.Button(
                                 variant="outline-secondary",
                                 style=lib.Style(marginBottom="16px"),
                                 onClick=lambda e: (set_analysis_results(None), set_image(None)),
                             )("← Analyze Another"),
-
+ 
                             lib.html.h3("Analysis Result"),
                             lib.html.img(
                                 src=image,
@@ -2688,7 +3013,7 @@ def image_analysis(lib):
                                                 borderRadius="6px", border="1px solid #ccc"),
                             ),
                             lib.html.hr(),
-
+ 
                             lib.html.div(
                                 style=lib.Style(backgroundColor="#f8f9fa",
                                                 border="1px solid #dee2e6",
@@ -2700,7 +3025,7 @@ def image_analysis(lib):
                                 ),
                                 lib.md.Markdown(analysis_results),
                             ),
-
+ 
                             lib.bs.Row(style=lib.Style(marginBottom="16px"))(
                                 lib.bs.Col()(
                                     lib.html.label(
@@ -2727,8 +3052,7 @@ def image_analysis(lib):
                                     ),
                                 ),
                             ),
-
-                            # Show GPS fix that will be saved with this analysis
+ 
                             lib.html.div(
                                 style=lib.Style(
                                     fontSize="12px", color="#2e7d32",
@@ -2740,11 +3064,11 @@ def image_analysis(lib):
                                 f"📍 GPS will be saved with this record: "
                                 f"Lat {gps['location']['lat']}°  Lon {gps['location']['lon']}°"
                             ) if gps["location"] else None,
-
+ 
                             status_alerts(lib, submit_success=db["submit_success"],
                                           success_message=db["success_message"],
                                           error_message=db["error_message"]),
-
+ 
                             lib.bs.Button(
                                 type="submit", variant="primary", size="lg",
                                 disabled=db["is_loading"],
@@ -2762,7 +3086,7 @@ def image_analysis(lib):
                         ),
                     ),
                 ),
-
+ 
                 lib.tabs.TabPanel(
                     lib.html.div(style=lib.Style(padding="20px"))(
                         lib.html.h2("📊 Analysis Archive"),
@@ -2775,3 +3099,4 @@ def image_analysis(lib):
             ),
         )
     )
+ 
