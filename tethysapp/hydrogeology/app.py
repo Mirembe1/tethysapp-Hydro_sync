@@ -13,6 +13,8 @@ import base64
 from pathlib import Path
 from datetime import datetime
 
+FOO_PATH = Path("foo")
+
 
 class App(ComponentBase):
     name = "Hydro sync"
@@ -2293,7 +2295,7 @@ def chatroom(lib):
     messages, set_messages = lib.hooks.use_state([])
     draft, set_draft = lib.hooks.use_state("")
     confirm_clear, set_confirm_clear = lib.hooks.use_state(False)
-    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    db_fpath, set_db_fpath = lib.hooks.use_state(FOO_PATH)
     gps_location, set_gps_location = lib.hooks.use_state(None)
     user = lib.hooks.use_user()
     sender_name = user.username
@@ -2401,7 +2403,7 @@ def chatroom(lib):
         return lib.m.Text(
             "App workspace storage quota exceeded. Please free up space to use this app."
         )
-    else:
+    elif db_fpath == FOO_PATH:
         set_db_fpath(Path(app_workspace.path, "chatroom.sqlite"))
 
     return lib.tethys.Display(
@@ -2517,7 +2519,7 @@ def map_location(lib):
     app_workspace = lib.hooks.use_workspace()
     color, set_color = lib.hooks.use_state("#100a0a")
     width, set_width = lib.hooks.use_state(4)
-    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    db_fpath, set_db_fpath = lib.hooks.use_state(FOO_PATH)
 
     table_name = "Map_Location"
     db = use_db_state(lib, db_fpath, table_name)
@@ -2651,7 +2653,7 @@ def map_location(lib):
         return lib.m.Text(
             "App workspace storage quota exceeded. Please free up space to use this app."
         )
-    else:
+    elif db_fpath == FOO_PATH:
         set_db_fpath(Path(app_workspace.path, "map_location.sqlite"))
 
     return lib.html.div(
@@ -2681,7 +2683,7 @@ def VES_FORM(lib):
 
     app_workspace = lib.hooks.use_workspace()
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
-    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    db_fpath, set_db_fpath = lib.hooks.use_state(FOO_PATH)
     table_name = "VES_FORM"
     db = use_db_state(lib, db_fpath, table_name)
 
@@ -2921,7 +2923,7 @@ def VES_FORM(lib):
         return lib.m.Text(
             "App workspace storage quota exceeded. Please free up space to use this app."
         )
-    else:
+    elif db_fpath == FOO_PATH:
         set_db_fpath(Path(app_workspace.path, "ves_survey_data.sqlite"))
 
     return lib.html.div(
@@ -2951,7 +2953,7 @@ def resistivity_survey_form(lib):
 
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     app_workspace = lib.hooks.use_workspace()
-    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    db_fpath, set_db_fpath = lib.hooks.use_state(FOO_PATH)
 
     log_spacings = [
         1,
@@ -3380,7 +3382,7 @@ def resistivity_survey_form(lib):
         return lib.m.Text(
             "App workspace storage quota exceeded. Please free up space to use this app."
         )
-    else:
+    elif db_fpath == FOO_PATH:
         set_db_fpath(Path(app_workspace.path, "resistivity_survey.sqlite"))
 
     return lib.html.div(
@@ -3407,7 +3409,7 @@ def image_analysis(lib):
 
     app_workspace = lib.hooks.use_workspace()
 
-    db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
+    db_fpath, set_db_fpath = lib.hooks.use_state(FOO_PATH)
     processing, set_processing = lib.hooks.use_state(False)
     analysis_results, set_analysis_results = lib.hooks.use_state(None)
     image, set_image = lib.hooks.use_state(None)
@@ -3777,7 +3779,7 @@ def image_analysis(lib):
         return lib.m.Text(
             "App workspace storage quota exceeded. Please free up space to use this app."
         )
-    else:
+    elif db_fpath == FOO_PATH:
         set_db_fpath(Path(app_workspace.path, "image_analysis.sqlite"))
 
     return lib.tethys.Display(
