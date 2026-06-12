@@ -1053,7 +1053,7 @@ CHAT_CSS = """
 def status_alerts(
     lib, submit_success, success_message, error_message, extra_detail=None
 ):
-    return lib.html.div()(
+    return lib.html.div(
         (
             lib.bs.Alert(
                 variant="success",
@@ -1068,7 +1068,7 @@ def status_alerts(
                     style=lib.Style(display="flex", alignItems="center", gap="10px")
                 )(
                     lib.html.span(style=lib.Style(fontSize="20px"))("✓"),
-                    lib.html.div()(
+                    lib.html.div(
                         lib.html.strong(success_message),
                         lib.html.br(),
                         (
@@ -1219,6 +1219,7 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
         "location": gps_loc,
         "saved_msg": saved_msg,
         "Geolocation": Geolocation,
+        "error": gps_error,
     }
 
 
@@ -1344,11 +1345,11 @@ def make_record_manager(
             lib.bs.Modal(
                 show=delete_confirm_open, onHide=lambda: set_delete_confirm_open(False)
             )(
-                lib.bs.ModalHeader()("Confirm Delete?"),
-                lib.bs.ModalBody()(
+                lib.bs.ModalHeader("Confirm Delete?"),
+                lib.bs.ModalBody(
                     f"Delete {len(selected_rows)} record(s)? Cannot be undone."
                 ),
-                lib.bs.ModalFooter()(
+                lib.bs.ModalFooter(
                     lib.bs.Button(
                         variant="secondary",
                         onClick=lambda e: set_delete_confirm_open(False),
@@ -1366,7 +1367,7 @@ def make_record_manager(
                         backgroundColor="#f5f5f5", borderBottom="2px solid #ddd"
                     )
                 )(
-                    lib.html.tr()(
+                    lib.html.tr(
                         lib.html.th(
                             style=lib.Style(
                                 padding="12px",
@@ -1393,7 +1394,7 @@ def make_record_manager(
                         )("Date"),
                     )
                 ),
-                lib.html.tbody()(*table_rows),
+                lib.html.tbody(*table_rows),
             ),
         )
 
@@ -1411,9 +1412,9 @@ def make_record_manager(
         is_readonly = existing_id is not None and not form_edit_mode
 
         form_rows = [
-            lib.bs.Row()(
+            lib.bs.Row(
                 *[
-                    lib.bs.Col()(
+                    lib.bs.Col(
                         lib.html.label(
                             style=lib.Style(
                                 display="block",
@@ -1487,9 +1488,9 @@ def make_record_manager(
                     show=delete_confirm_open and existing_id is not None,
                     onHide=lambda: set_delete_confirm_open(False),
                 )(
-                    lib.bs.ModalHeader()("Confirm Delete?"),
-                    lib.bs.ModalBody()("Delete this record? Cannot be undone."),
-                    lib.bs.ModalFooter()(
+                    lib.bs.ModalHeader("Confirm Delete?"),
+                    lib.bs.ModalBody("Delete this record? Cannot be undone."),
+                    lib.bs.ModalFooter(
                         lib.bs.Button(
                             variant="secondary",
                             onClick=lambda e: set_delete_confirm_open(False),
@@ -1560,8 +1561,8 @@ def make_record_manager(
         )
 
     def TabView(gps_banner=None):
-        return lib.html.div()(
-            lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
+        return lib.html.div(
+            lib.html.style(SHARED_CSS + GPS_BANNER_CSS),
             gps_banner if gps_banner is not None else None,
             lib.tabs.Tabs(
                 lib.tabs.TabList(lib.tabs.Tab("Add Data"), lib.tabs.Tab("View Data")),
@@ -1928,8 +1929,8 @@ def home(lib):
         lib.utils.background_execute(_do_pull_bg)
 
     return lib.tethys.Display(
-        lib.html.div()(
-            lib.html.style()(SHARED_CSS + HOME_CSS),
+        lib.html.div(
+            lib.html.style(SHARED_CSS + HOME_CSS),
             lib.geo.Geolocation(
                 trackingOptions=lib.Props(enableHighAccuracy=True),
                 tracking=True,
@@ -1964,7 +1965,7 @@ def home(lib):
                             )
                         )(
                             lib.html.span(style=lib.Style(fontSize="28px"))("💧"),
-                            lib.html.div()(
+                            lib.html.div(
                                 lib.html.h2("Hydro Sync"),
                                 lib.html.p("Field ↔ Office · Live GPS"),
                             ),
@@ -2085,11 +2086,11 @@ def home(lib):
                                     ),
                                     (
                                         lib.html.div(className="hover-pill")(
-                                            lib.html.div()(
-                                                lib.html.b()("Hovered point")
+                                            lib.html.div(
+                                                lib.html.b("Hovered point")
                                             ),
-                                            lib.html.div()(f"X (Lon)  {h_lon:+.6f}°"),
-                                            lib.html.div()(f"Y (Lat)   {h_lat:+.6f}°"),
+                                            lib.html.div(f"X (Lon)  {h_lon:+.6f}°"),
+                                            lib.html.div(f"Y (Lat)   {h_lat:+.6f}°"),
                                             lib.html.div(
                                                 style=lib.Style(
                                                     opacity="0.65",
@@ -2137,25 +2138,25 @@ def home(lib):
                                                     marginTop="8px", paddingLeft="16px"
                                                 )
                                             )(
-                                                lib.html.li()(
+                                                lib.html.li(
                                                     "Create a free Postgres DB on ",
-                                                    lib.html.strong()("Supabase"),
+                                                    lib.html.strong("Supabase"),
                                                     " or ",
-                                                    lib.html.strong()("Railway"),
+                                                    lib.html.strong("Railway"),
                                                     ".",
                                                 ),
-                                                lib.html.li()(
+                                                lib.html.li(
                                                     "Copy the connection string:  ",
-                                                    lib.html.code()(
+                                                    lib.html.code(
                                                         "postgresql://user:pass@host/db"
                                                     ),
                                                 ),
-                                                lib.html.li()(
+                                                lib.html.li(
                                                     "Tethys Admin › App Settings › ",
-                                                    lib.html.strong()("SYNC_DB_URL"),
+                                                    lib.html.strong("SYNC_DB_URL"),
                                                 ),
-                                                lib.html.li()(
-                                                    lib.html.code()(
+                                                lib.html.li(
+                                                    lib.html.code(
                                                         "pip install psycopg2-binary"
                                                     )
                                                 ),
@@ -2218,7 +2219,7 @@ def home(lib):
                                     ),
                                     (
                                         lib.html.div(className="sync-log")(
-                                            *[lib.html.div()(line) for line in sync_log]
+                                            *[lib.html.div(line) for line in sync_log]
                                         )
                                         if sync_log
                                         else None
@@ -2404,12 +2405,12 @@ def chatroom(lib):
         set_db_fpath(Path(app_workspace.path, "chatroom.sqlite"))
 
     return lib.tethys.Display(
-        lib.html.div()(
-            lib.html.style()(CHAT_CSS),
+        lib.html.div(
+            lib.html.style(CHAT_CSS),
             lib.html.div(className="chat-root")(
                 lib.html.div(className="chat-header")(
                     lib.html.div(className="chat-header-icon")("💬"),
-                    lib.html.div()(
+                    lib.html.div(
                         lib.html.div(className="chat-header-title")("Field Chatroom"),
                         lib.html.div(className="chat-header-sub")(
                             f"HydroSync · {len(messages)} message(s)"
@@ -2425,9 +2426,9 @@ def chatroom(lib):
                 lib.bs.Modal(
                     show=confirm_clear, onHide=lambda: set_confirm_clear(False)
                 )(
-                    lib.bs.ModalHeader()("Clear Chat?"),
-                    lib.bs.ModalBody()("This will delete all messages permanently."),
-                    lib.bs.ModalFooter()(
+                    lib.bs.ModalHeader("Clear Chat?"),
+                    lib.bs.ModalBody("This will delete all messages permanently."),
+                    lib.bs.ModalFooter(
                         lib.bs.Button(
                             variant="secondary",
                             onClick=lambda e: set_confirm_clear(False),
@@ -2653,7 +2654,7 @@ def map_location(lib):
     else:
         set_db_fpath(Path(app_workspace.path, "map_location.sqlite"))
 
-    return lib.html.div()(
+    return lib.html.div(
         gps["Geolocation"](),
         TabView(gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])),
     )
@@ -2785,7 +2786,7 @@ def VES_FORM(lib):
             if hasattr(e, "node") and hasattr(e.node, "beans"):
                 set_row_data(e.node.beans.gridOptions.rowData)
 
-        return lib.html.div()(
+        return lib.html.div(
             # ── Station data grid ──────────────────────────────────────────
             lib.html.div(
                 style=lib.Style(
@@ -2831,7 +2832,7 @@ def VES_FORM(lib):
                 ),
                 # ── Gemini AI button + panel ───────────────────────────────
                 lib.html.div(style=lib.Style(marginTop="20px"))(
-                    lib.html.style()(AI_ANALYSIS_CSS),
+                    lib.html.style(AI_ANALYSIS_CSS),
                     lib.html.button(
                         className="ai-analyze-btn",
                         onClick=event(handle_ves_ai_analysis),
@@ -2871,10 +2872,10 @@ def VES_FORM(lib):
                                 lib.md.Markdown(ves_ai_result)
                             ),
                             lib.html.div(className="ai-panel-meta")(
-                                lib.html.span()(f"⏱ Analysed: {ves_ai_saved_at}"),
-                                lib.html.span()(f"💾 Saved to VES_FORM table"),
+                                lib.html.span(f"⏱ Analysed: {ves_ai_saved_at}"),
+                                lib.html.span(f"💾 Saved to VES_FORM table"),
                                 (
-                                    lib.html.span()(
+                                    lib.html.span(
                                         f"📍 GPS: {gps['location']['lat']}°, {gps['location']['lon']}°"
                                     )
                                     if gps["location"]
@@ -2923,7 +2924,7 @@ def VES_FORM(lib):
     else:
         set_db_fpath(Path(app_workspace.path, "ves_survey_data.sqlite"))
 
-    return lib.html.div()(
+    return lib.html.div(
         gps["Geolocation"](),
         TabView(gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])),
     )
@@ -3119,7 +3120,7 @@ def resistivity_survey_form(lib):
             if rec:
                 saved_analysis = rec.get("ai_analysis", "")
 
-        return lib.html.div()(
+        return lib.html.div(
             lib.html.div(style=lib.Style(display="flex", gap="20px", margin="20px 0"))(
                 lib.html.div(style=lib.Style(flex="0 0 300px"))(
                     lib.html.label("MN/2 (constant):"),
@@ -3152,7 +3153,7 @@ def resistivity_survey_form(lib):
                             width="100%", borderCollapse="collapse", fontSize="12px"
                         )
                     )(
-                        lib.html.thead()(
+                        lib.html.thead(
                             lib.html.tr(
                                 style=lib.Style(
                                     backgroundColor="#ddd",
@@ -3181,7 +3182,7 @@ def resistivity_survey_form(lib):
                                 )("Notes"),
                             ),
                         ),
-                        lib.html.tbody()(
+                        lib.html.tbody(
                             *[
                                 lib.html.tr(
                                     style=lib.Style(
@@ -3287,8 +3288,8 @@ def resistivity_survey_form(lib):
                 ),
             ),
             # ── Gemini AI section (below chart) ───────────────────────────
-            lib.html.div()(
-                lib.html.style()(AI_ANALYSIS_CSS),
+            lib.html.div(
+                lib.html.style(AI_ANALYSIS_CSS),
                 lib.html.button(
                     className="ai-analyze-btn",
                     onClick=event(handle_resistivity_analysis),
@@ -3328,13 +3329,13 @@ def resistivity_survey_form(lib):
                             lib.md.Markdown(res_ai_result)
                         ),
                         lib.html.div(className="ai-panel-meta")(
-                            lib.html.span()(f"⏱ Analysed: {res_ai_saved_at}"),
-                            lib.html.span()(
+                            lib.html.span(f"⏱ Analysed: {res_ai_saved_at}"),
+                            lib.html.span(
                                 f"📍 Location: {survey_data.get('location_point', '—')}"
                             ),
-                            lib.html.span()(f"💾 Saved to resistivity_survey table"),
+                            lib.html.span(f"💾 Saved to resistivity_survey table"),
                             (
-                                lib.html.span()(
+                                lib.html.span(
                                     f"🌐 GPS: {gps['location']['lat']}°, {gps['location']['lon']}°"
                                 )
                                 if gps["location"]
@@ -3382,7 +3383,7 @@ def resistivity_survey_form(lib):
     else:
         set_db_fpath(Path(app_workspace.path, "resistivity_survey.sqlite"))
 
-    return lib.html.div()(
+    return lib.html.div(
         gps["Geolocation"](),
         TabView(gps_banner=gps_status_banner(lib, gps["location"], gps["saved_msg"])),
     )
@@ -3544,7 +3545,7 @@ def image_analysis(lib):
             for record in data
         ]
 
-        return lib.html.div()(
+        return lib.html.div(
             lib.html.div(
                 style=lib.Style(
                     display="flex", gap="10px", marginBottom="15px", alignItems="center"
@@ -3568,11 +3569,11 @@ def image_analysis(lib):
                 )(f"🗑️ Delete ({len(selected_rows)})"),
             ),
             lib.bs.Modal(show=delete_confirm, onHide=lambda: set_delete_confirm(False))(
-                lib.bs.ModalHeader()("Confirm Delete"),
-                lib.bs.ModalBody()(
+                lib.bs.ModalHeader("Confirm Delete"),
+                lib.bs.ModalBody(
                     f"Delete {len(selected_rows)} record(s)? Cannot be undone."
                 ),
-                lib.bs.ModalFooter()(
+                lib.bs.ModalFooter(
                     lib.bs.Button(
                         variant="secondary", onClick=lambda e: set_delete_confirm(False)
                     )("Cancel"),
@@ -3596,7 +3597,7 @@ def image_analysis(lib):
                             backgroundColor="#f5f5f5", borderBottom="2px solid #ddd"
                         )
                     )(
-                        lib.html.tr()(
+                        lib.html.tr(
                             lib.html.th(
                                 style=lib.Style(
                                     padding="10px",
@@ -3630,7 +3631,7 @@ def image_analysis(lib):
                             )("Saved At"),
                         )
                     ),
-                    lib.html.tbody()(*rows),
+                    lib.html.tbody(*rows),
                 )
             ),
         )
@@ -3638,7 +3639,7 @@ def image_analysis(lib):
     def ArchiveDetail():
         rec = selected_record
         if not rec:
-            return lib.html.div()("No record selected.")
+            return lib.html.div("No record selected.")
 
         return lib.html.div(style=lib.Style(padding="20px", maxWidth="860px"))(
             lib.html.div(
@@ -3661,9 +3662,9 @@ def image_analysis(lib):
                 lib.bs.Modal(
                     show=delete_confirm, onHide=lambda: set_delete_confirm(False)
                 )(
-                    lib.bs.ModalHeader()("Confirm Delete"),
-                    lib.bs.ModalBody()("Delete this record? Cannot be undone."),
-                    lib.bs.ModalFooter()(
+                    lib.bs.ModalHeader("Confirm Delete"),
+                    lib.bs.ModalBody("Delete this record? Cannot be undone."),
+                    lib.bs.ModalFooter(
                         lib.bs.Button(
                             variant="secondary",
                             onClick=lambda e: set_delete_confirm(False),
@@ -3698,7 +3699,7 @@ def image_analysis(lib):
                 )
             )(
                 *[
-                    lib.html.div()(
+                    lib.html.div(
                         lib.html.span(
                             style=lib.Style(
                                 fontWeight="bold",
@@ -3780,8 +3781,8 @@ def image_analysis(lib):
         set_db_fpath(Path(app_workspace.path, "image_analysis.sqlite"))
 
     return lib.tethys.Display(
-        lib.html.div()(
-            lib.html.style()(SHARED_CSS + GPS_BANNER_CSS),
+        lib.html.div(
+            lib.html.style(SHARED_CSS + GPS_BANNER_CSS),
             gps["Geolocation"](),
             lib.tabs.Tabs(
                 lib.tabs.TabList(
@@ -3856,7 +3857,7 @@ def image_analysis(lib):
                                     lib.md.Markdown(analysis_results),
                                 ),
                                 lib.bs.Row(style=lib.Style(marginBottom="16px"))(
-                                    lib.bs.Col()(
+                                    lib.bs.Col(
                                         lib.html.label(
                                             style=lib.Style(
                                                 display="block",
@@ -3876,7 +3877,7 @@ def image_analysis(lib):
                                             ),
                                         ),
                                     ),
-                                    lib.bs.Col()(
+                                    lib.bs.Col(
                                         lib.html.label(
                                             style=lib.Style(
                                                 display="block",
