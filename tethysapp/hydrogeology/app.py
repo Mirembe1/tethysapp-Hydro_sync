@@ -1158,7 +1158,7 @@ def use_page_gps(lib, db_fpath, table_name, extra_fields=None):
             tracking=True,
             projection="EPSG:3857",
             onError=lambda e: set_gps_error(str(e)),
-            onChange=on_geo_change,
+            **{"onChange": on_geo_change} if not gps_saved else {},
         )
  
     lon84, lat84 = _merc_to_wgs84(location[0], location[1]) if location else (None, None)
@@ -2634,13 +2634,33 @@ def resistivity_survey_form(lib):
  
                 lib.html.div(style=lib.Style(flex=1, minHeight="700px"))(
                     lib.html.div(style=lib.Style(height="700px"))(
-                        lib.tethys.Chart(
-                            data=plot_data if plot_data else [{"depth": 1, "resistivity": 50}],
-                            height=700, width=900,
-                            x_label="Apparent Resistivity ρa (Ω·m)",
-                            y_label="Electrode Spacing AB/2 (m)",
-                            x_attr="resistivity", y_attr="depth",
-                        ),
+                        lib.pl.Plot(
+                            key="resistivity-chart",
+                            data=[
+                                lib.Props(
+                                    x=[_["resistivity"] for _ in plot_data],
+                                    y=[_["depth"] for _ in plot_data],
+                                    type="scatter",
+                                    mode="lines+markers",
+                                    marker=lib.Props(color="red"),
+                                ),
+                            ],
+                            layout=lib.Props(
+                                autosize=True,
+                                width=900,
+                                height=700,
+                                xaxis=lib.Props(
+                                    title=lib.Props(text="Apparent Resistivity ρa (Ω·m)"),
+                                    type="log",
+                                    autorange="reversed",
+                                ),
+                                yaxis=lib.Props(
+                                    title=lib.Props(text="Electrode Spacing AB/2 (m)"),
+                                    type="log",
+                                    autorange="reversed",
+                                ),
+                            ),
+                        )
                     ),
                     lib.html.p(style=lib.Style(fontSize="11px", color="#666", marginTop="10px"))(
                         "Schlumberger array: MN/2 constant, AB/2 varies. "
