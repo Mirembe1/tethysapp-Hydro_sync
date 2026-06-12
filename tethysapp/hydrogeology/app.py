@@ -2248,6 +2248,7 @@ def VES_FORM(lib):
     # Preload conditionally rendered components
     lib.md.Markdown()
     lib.bs.Modal()
+    lib.bs.Alert()
 
     app_workspace  = lib.hooks.use_workspace()
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
@@ -2279,7 +2280,7 @@ def VES_FORM(lib):
  
     # ── Gemini analysis handler ────────────────────────────────────────────
     async def handle_ves_ai_analysis(e):
-        set_ves_ai_processing(lambda current: True)
+        set_ves_ai_processing(True)
         set_ves_ai_error(None)
         set_ves_ai_result(None)
  
@@ -2370,6 +2371,8 @@ def VES_FORM(lib):
                         onClick=event(handle_ves_ai_analysis),
                         disabled=ves_ai_processing,
                         type="button",
+                        hidden=not form_edit_mode,
+
                     )(
                         lib.html.span(className="spinner")("⟳") if ves_ai_processing
                         else "🤖",
@@ -2430,8 +2433,6 @@ def VES_FORM(lib):
     else:
         set_db_fpath(Path(app_workspace.path, "ves_survey_data.sqlite"))
 
-    print("ves_ai_processing", ves_ai_processing)
-    print("ves_ai_result", ves_ai_result)
     return lib.html.div()(
         gps["Geolocation"](),
         TabView(
@@ -2450,6 +2451,12 @@ def resistivity_survey_form(lib):
                  styles=["https://esm.sh/react-tabs@6.1.0/style/react-tabs.css"])
     lib.register("react-markdown", "md", default_export="Markdown")
  
+    # Preload conditionally rendered components
+    lib.md.Markdown()
+    lib.bs.Modal()
+    lib.bs.Alert()
+
+
     gemini_api_key = lib.hooks.use_setting("GEMINI_API_KEY")
     app_workspace  = lib.hooks.use_workspace()
     db_fpath, set_db_fpath = lib.hooks.use_state(Path("foo"))
@@ -2675,8 +2682,10 @@ def resistivity_survey_form(lib):
  
                 lib.html.button(
                     className="ai-analyze-btn",
-                    onClick=handle_resistivity_analysis,
+                    onClick=event(handle_resistivity_analysis),
                     disabled=res_ai_processing or is_readonly,
+                    type="button", 
+                    hidden=is_readonly,
                 )(
                     lib.html.span(className="spinner")("⟳") if res_ai_processing
                     else "🤖",
