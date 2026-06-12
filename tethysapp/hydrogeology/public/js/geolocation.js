@@ -25,6 +25,10 @@ export default function Geolocation(props, context) {
         props.projection = projection;
         if (props.onChange) {
             onChangeFunc = props.onChange;
+        } else {
+            if (geolocation && geolocation.__onChangeFunc) {
+                geolocation.un('change', geolocation.__onChangeFunc);
+            }
         }
         if (props.onError) {
             onErrorFunc = props.onError;
